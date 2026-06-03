@@ -8,7 +8,7 @@ import WebbedKit
 /// persistence service. Singleton accessed from `AppDelegate` and menu
 /// commands. Mirrors Noted's `AppCoordinator`.
 @MainActor
-final class AppCoordinator: ObservableObject {
+final class AppCoordinator: ObservableObject, TabIntentHost {
 
     static let shared = AppCoordinator()
 
@@ -33,6 +33,8 @@ final class AppCoordinator: ObservableObject {
         }
 
         store.purgeOldTrash()
+
+        IntentHostRegistry.current = self
     }
 
     private func installICloudObserver(directory: URL) {
@@ -160,4 +162,17 @@ final class AppCoordinator: ObservableObject {
 
     private func currentTabID() -> UUID? { currentController()?.tabID }
     private func currentWebView() -> WKWebView? { currentController()?.contentView.webView }
+
+    // MARK: - TabIntentHost
+
+    func openTab(id: UUID) {
+        windowManager.openWindow(for: id)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    func openNewTab(url: URL?) {
+        let tab = tabStore.createTab(url: url ?? AppSettings.shared.homepageURL)
+        windowManager.openNewTabWindow(tabID: tab.id)
+        NSApp.activate(ignoringOtherApps: true)
+    }
 }

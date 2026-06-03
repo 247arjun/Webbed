@@ -5,7 +5,7 @@ import WebbedKit
 /// Holds the iOS app's persistent state: the `TabStore` and the persistence
 /// backend. iCloud observer wiring happens in Phase 5.
 @MainActor
-final class AppModel: ObservableObject {
+final class AppModel: ObservableObject, TabIntentHost {
 
     static let shared = AppModel()
 
@@ -30,6 +30,19 @@ final class AppModel: ObservableObject {
         tabStore.loadAll()
         tabStore.purgeOldTrash()
         installICloudObserverIfNeeded(directory: directory)
+
+        IntentHostRegistry.current = self
+    }
+
+    // MARK: - TabIntentHost
+
+    func openTab(id: UUID) {
+        pendingOpenTabID = id
+    }
+
+    func openNewTab(url: URL?) {
+        let tab = tabStore.createTab(url: url ?? AppSettings.shared.homepageURL)
+        pendingOpenTabID = tab.id
     }
 
     /// Create a new tab and queue it for the editor.

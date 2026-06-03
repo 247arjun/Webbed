@@ -6,6 +6,8 @@ import WebbedKit
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
 
+    private var settingsWindowController: SettingsWindowController?
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
         NSApp.mainMenu = buildMainMenu()
@@ -48,6 +50,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         appMenu.addItem(withTitle: "About Webbed",
                         action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)),
                         keyEquivalent: "")
+        appMenu.addItem(.separator())
+        let settings = appMenu.addItem(withTitle: "Settings…",
+                                       action: #selector(showSettings),
+                                       keyEquivalent: ",")
+        settings.target = self
         appMenu.addItem(.separator())
         appMenu.addItem(withTitle: "Hide Webbed",
                         action: #selector(NSApplication.hide(_:)),
@@ -211,5 +218,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.windowsMenu = windowMenu
 
         return mainMenu
+    }
+
+    // MARK: - Settings
+
+    @objc private func showSettings() {
+        if settingsWindowController == nil {
+            settingsWindowController = SettingsWindowController()
+        }
+        settingsWindowController?.window?.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
     }
 }
