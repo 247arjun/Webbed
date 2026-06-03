@@ -122,9 +122,31 @@ final class TabWindowController: NSWindowController,
     func windowWillClose(_ notification: Notification) {
         liveRefreshTimer?.invalidate()
         liveRefreshTimer = nil
+        tearDownWebView()
         tabStore?.markClosed(tabID: tabID, isClosed: true)
         NotificationCenter.default.post(name: .tabWindowDidClose, object: tabID)
         Log.window.debug("Window closed for tab \(self.tabID, privacy: .public)")
+    }
+
+    /// Detach the web view so it can be deallocated and any media it is
+    /// playing stops immediately.
+    ///
+    /// `WKUserContentController.add(_:name:)` retains the script-message
+    /// handler (us), and the configuration is retained by the web view,
+    /// which is retained by the window. That cycle means the controller —
+    /// and therefore the web view and its content process — outlive
+    /// `windowWillClose` and the media keeps playing. Removing the handlers
+    /// breaks the cycle; loading `about:blank` silences audio immediately
+    /// instead of waiting for the eventual dealloc.
+    private func tearDownWebView() {
+        let webView = contentView.webView
+        let ucc = webView.configuration.userContentController
+        ucc.removeScriptMessageHandler(forName: "favicon")
+        ucc.removeScriptMessageHandler(forName: "themeColor")
+        webView.stopLoading()
+        webView.load(URLRequest(url: URL(string: "about:blank")!))
+        webView.navigationDelegate = nil
+        webView.uiDelegate = nil
     }
 
     // MARK: - KVO
