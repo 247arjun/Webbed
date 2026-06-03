@@ -76,7 +76,12 @@ public struct WebbedTheme: Equatable, Sendable {
         let textIsDark    = text == PlatformColor(red: 0, green: 0, blue: 0, alpha: 1)
         let body          = mix(base, with: textIsDark ? .white : .black, fraction: 0.85)
         let placeholder   = text.withAlphaComponent(0.55)
-        let controlTint   = textIsDark ? darken(base, by: 0.25) : lighten(base, by: 0.25)
+        // Control tint must stay readable against the header. Start from the
+        // WCAG-contrasted text color (which is already known to be legible
+        // against `base`) and mix in just enough of the brand color to feel
+        // intentional without sacrificing contrast. 15 % brand keeps a real
+        // 3:1+ UI contrast ratio across the gamut.
+        let controlTint   = mix(text, with: base, fraction: 0.15)
         return WebbedTheme(
             bodyBackgroundColor:   body,
             headerBackgroundColor: base,

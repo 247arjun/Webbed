@@ -98,6 +98,9 @@ struct RootView: View {
                 onRestoredToActive: {
                     activeBucket = .active
                     selectedTabID = id
+                },
+                onClosed: {
+                    selectedTabID = nil
                 }
             )
             .id(id)

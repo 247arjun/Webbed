@@ -177,18 +177,17 @@ final class TabContentView: NSView {
     func updateLiveModeGlyph(_ interval: LiveModeInterval) {
         let active = interval != .off
         let symbol = active ? "bolt.circle.fill" : "bolt.circle"
-        let config = NSImage.SymbolConfiguration(pointSize: 12, weight: .medium)
+        let config = NSImage.SymbolConfiguration(pointSize: 12, weight: active ? .bold : .medium)
         liveButton.image = NSImage(systemSymbolName: symbol,
                                    accessibilityDescription: "Live Mode")?
             .withSymbolConfiguration(config)
-        // Highlight the active state with a tinted background ring.
-        if active {
-            liveButton.contentTintColor = NSColor.systemYellow
-            liveButton.toolTip = "Live Mode: \(interval.displayName)"
-        } else {
-            liveButton.contentTintColor = theme.controlTintColor
-            liveButton.toolTip = "Live Mode (off)"
-        }
+        // Always tint with the theme's control color so the glyph stays
+        // legible against the header background regardless of brand color.
+        // The filled `.bolt.circle.fill` glyph + bolder weight already make
+        // the active state visually distinct without a separate tint that
+        // could disappear on yellow chrome.
+        liveButton.contentTintColor = theme.controlTintColor
+        liveButton.toolTip = active ? "Live Mode: \(interval.displayName)" : "Live Mode (off)"
         liveButton.setAccessibilityValue(active ? interval.shortLabel : "off")
     }
 

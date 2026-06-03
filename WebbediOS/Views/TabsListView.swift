@@ -89,7 +89,7 @@ struct TabsListView: View {
                 let tab = tabStore.createTab(url: AppSettings.shared.homepageURL)
                 selection = tab.id
             } label: {
-                Image(systemName: "plus.square")
+                Image(systemName: "plus")
             }
             .accessibilityLabel("New Tab")
         }

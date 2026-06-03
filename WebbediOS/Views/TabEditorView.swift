@@ -9,6 +9,7 @@ struct TabEditorView: View {
     let isReadOnly: Bool
     let bucket: StorageBucket
     let onRestoredToActive: () -> Void
+    var onClosed: (() -> Void)? = nil
 
     @State private var address: String = ""
     @State private var isEditingAddress: Bool = false
@@ -44,7 +45,9 @@ struct TabEditorView: View {
                 pendingAction: $pendingAction
             )
             .ignoresSafeArea(edges: bucket == .active ? [.bottom] : [])
-            bottomBar
+        }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            bottomChrome
         }
         .navigationBarTitleDisplayMode(.inline)
         .toolbar { toolbarContent }
