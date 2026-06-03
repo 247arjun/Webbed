@@ -333,11 +333,17 @@ final class TabWindowController: NSWindowController,
                  createWebViewWith configuration: WKWebViewConfiguration,
                  for navigationAction: WKNavigationAction,
                  windowFeatures: WKWindowFeatures) -> WKWebView? {
-        // Per-origin popup gate.
-        let host = navigationAction.sourceFrame.request.url?.host ?? currentHost()
-        if permissionStore?.decision(for: host, kind: .popups) == .deny {
-            Log.web.debug("Pop-up suppressed for \(host ?? "", privacy: .public)")
-            return nil
+        // Per-origin popup gate — applies only to programmatic
+        // `window.open()` style calls (navigationType == .other). User-
+        // initiated actions (link clicks, ⌘-click, context-menu
+        // "Open Link in New Window") report `.linkActivated` and must
+        // always be honored regardless of the popup setting.
+        if navigationAction.navigationType == .other {
+            let host = navigationAction.sourceFrame.request.url?.host ?? currentHost()
+            if permissionStore?.decision(for: host, kind: .popups) == .deny {
+                Log.web.debug("Pop-up suppressed for \(host ?? "", privacy: .public)")
+                return nil
+            }
         }
         // Open in a new tab/window of our own rather than letting WebKit do it.
         if let url = navigationAction.request.url {

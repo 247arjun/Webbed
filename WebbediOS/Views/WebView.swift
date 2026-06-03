@@ -153,9 +153,14 @@ struct WebView: UIViewRepresentable {
                      createWebViewWith configuration: WKWebViewConfiguration,
                      for navigationAction: WKNavigationAction,
                      windowFeatures: WKWindowFeatures) -> WKWebView? {
-            let host = navigationAction.sourceFrame.request.url?.host ?? webView.url?.host
-            if AppModel.shared.permissionStore.decision(for: host, kind: .popups) == .deny {
-                return nil
+            // Popup gate applies only to programmatic `window.open()`
+            // (navigationType == .other). User-initiated link activations
+            // must always open.
+            if navigationAction.navigationType == .other {
+                let host = navigationAction.sourceFrame.request.url?.host ?? webView.url?.host
+                if AppModel.shared.permissionStore.decision(for: host, kind: .popups) == .deny {
+                    return nil
+                }
             }
             if let url = navigationAction.request.url {
                 webView.load(URLRequest(url: url))
