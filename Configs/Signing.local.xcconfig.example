@@ -1,14 +1,27 @@
 // =============================================================================
 //  Signing.local.xcconfig.example
 //
-//  Template for the gitignored `Signing.local.xcconfig` file. After cloning,
-//  run:
+//  Template for the gitignored `Signing.local.xcconfig`. After cloning:
 //
 //      cp Configs/Signing.local.xcconfig.example Configs/Signing.local.xcconfig
+//      # edit the copy, then:
+//      xcodegen generate
 //
-//  then edit the copy with your real values. The copy is .gitignored.
+//  The copy is .gitignored and survives every `xcodegen generate`.
+//
+//  Find your DEVELOPMENT_TEAM (10 characters):
+//    Xcode → Settings → Accounts → select Apple ID → "Manage Certificates…"
+//    or https://developer.apple.com/account → Membership → Team ID
 // =============================================================================
 
+// REQUIRED — your 10-character Team ID. Without this, archives have no team
+// embedded and Organizer rejects them with "No Team Found in Archive."
+DEVELOPMENT_TEAM = REPLACE_WITH_YOUR_10_CHAR_TEAM_ID
+
+// Recommended: automatic signing for both Debug and Release. Xcode will
+// create / refresh the necessary profiles for each distribution method.
 CODE_SIGN_STYLE = Automatic
 CODE_SIGN_IDENTITY = Apple Development
-DEVELOPMENT_TEAM = REPLACE_WITH_YOUR_10_CHAR_TEAM_ID
+
+// If you ever need manual signing for a specific distribution, also set:
+// PROVISIONING_PROFILE_SPECIFIER = <profile name>
