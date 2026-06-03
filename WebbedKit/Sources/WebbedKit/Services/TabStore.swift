@@ -25,6 +25,11 @@ public final class TabStore: ObservableObject {
     private var cancellables = Set<AnyCancellable>()
     private var pendingTabIDs = Set<UUID>()
 
+    // MARK: - iCloud observer
+
+    private var changeObserver: iCloudChangeObserver?
+    private var changeObserverCancellable: AnyCancellable?
+
     public init(persistenceService: PersistenceService) {
         self.persistenceService = persistenceService
         setupDebounce()
@@ -32,7 +37,63 @@ public final class TabStore: ObservableObject {
 
     public func swapPersistenceService(_ newService: PersistenceService) {
         self.persistenceService = newService
+        attachICloudObserver(nil)
         Log.persist.info("Swapped persistence backend → \(newService.tabsDirectory.path, privacy: .public)")
+    }
+
+    public func attachICloudObserver(_ observer: iCloudChangeObserver?) {
+        changeObserverCancellable?.cancel()
+        changeObserver?.stop()
+        changeObserver = observer
+        guard let observer else { return }
+        changeObserverCancellable = observer.changes.sink { [weak self] change in
+            guard let self else { return }
+            Task { @MainActor in self.applyExternalChange(change) }
+        }
+    }
+
+    private func applyExternalChange(_ change: iCloudChangeObserver.Change) {
+        switch change.kind {
+        case .added, .updated:
+            guard let svc = persistenceService as? FilePersistenceService else { return }
+            do {
+                guard let resolved = try svc.loadTab(id: change.tabID) else { return }
+                let (updated, bucket) = resolved
+                switch bucket {
+                case .active:
+                    if shouldApplyExternalUpdate(updated, currentlyAt: tabs[change.tabID]) {
+                        tabs[change.tabID] = updated
+                    }
+                case .archived:
+                    if !archivedTabs.isEmpty { archivedTabs[change.tabID] = updated }
+                    tabs.removeValue(forKey: change.tabID)
+                case .trash:
+                    if !trashedTabs.isEmpty  { trashedTabs[change.tabID] = updated }
+                    tabs.removeValue(forKey: change.tabID)
+                }
+            } catch {
+                Log.sync.error("Failed to load iCloud update for \(change.tabID, privacy: .public): \(error.localizedDescription)")
+            }
+        case .removed:
+            if tabs.removeValue(forKey: change.tabID) != nil
+                || archivedTabs.removeValue(forKey: change.tabID) != nil
+                || trashedTabs.removeValue(forKey: change.tabID) != nil {
+                Log.sync.debug("Pulled iCloud deletion for \(change.tabID, privacy: .public)")
+            }
+        }
+    }
+
+    private func shouldApplyExternalUpdate(_ updated: TabRecord, currentlyAt local: TabRecord?) -> Bool {
+        guard let local else { return true }
+        if local.updatedAt >= updated.updatedAt
+            && local.url == updated.url
+            && local.title == updated.title
+            && local.themeID == updated.themeID
+            && local.isPinned == updated.isPinned
+            && local.isPinnedTab == updated.isPinnedTab {
+            return false
+        }
+        return true
     }
 
     // MARK: - Loads

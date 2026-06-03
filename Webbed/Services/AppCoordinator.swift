@@ -16,6 +16,7 @@ final class AppCoordinator: ObservableObject {
     let windowManager: WindowManager
     private(set) var persistenceService: PersistenceService
     private var libraryWindowController: LibraryWindowController?
+    private var iCloudObserver: iCloudChangeObserver?
 
     private init() {
         let dir = AppSettings.shared.effectiveSaveDirectory
@@ -26,7 +27,19 @@ final class AppCoordinator: ObservableObject {
         self.tabStore = store
         self.windowManager = WindowManager(tabStore: store)
 
+        if AppSettings.shared.syncWithICloud,
+           StorageLocationResolver.iCloudDirectory() != nil {
+            installICloudObserver(directory: dir)
+        }
+
         store.purgeOldTrash()
+    }
+
+    private func installICloudObserver(directory: URL) {
+        let observer = iCloudChangeObserver()
+        observer.start(tabsDirectory: directory)
+        tabStore.attachICloudObserver(observer)
+        iCloudObserver = observer
     }
 
     // MARK: - App lifecycle

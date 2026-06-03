@@ -11,6 +11,7 @@ final class AppModel: ObservableObject {
 
     let tabStore: TabStore
     private var persistence: FilePersistenceService
+    private var iCloudObserver: iCloudChangeObserver?
 
     @Published private(set) var usingICloud: Bool = false
 
@@ -28,6 +29,7 @@ final class AppModel: ObservableObject {
 
         tabStore.loadAll()
         tabStore.purgeOldTrash()
+        installICloudObserverIfNeeded(directory: directory)
     }
 
     /// Create a new tab and queue it for the editor.
@@ -41,15 +43,34 @@ final class AppModel: ObservableObject {
         return StorageLocationResolver.defaultLocalDirectory()
     }
 
+    private func installICloudObserverIfNeeded(directory: URL) {
+        guard usingICloud else { return }
+        let obs = iCloudChangeObserver()
+        obs.start(tabsDirectory: directory)
+        tabStore.attachICloudObserver(obs)
+        iCloudObserver = obs
+    }
+
     /// Re-resolve the storage location (used by pull-to-refresh).
     func refresh() {
         let newDir = AppModel.resolveStartupDirectory()
+        let nowOnICloud = StorageLocationResolver.iCloudAvailable
+            && newDir.path.contains("Mobile Documents")
         if persistence.tabsDirectory != newDir {
             let newService = FilePersistenceService(directory: newDir)
             self.persistence = newService
             tabStore.swapPersistenceService(newService)
-            usingICloud = StorageLocationResolver.iCloudAvailable
-                && newDir.path.contains("Mobile Documents")
+            iCloudObserver?.stop()
+            iCloudObserver = nil
+            if nowOnICloud {
+                let obs = iCloudChangeObserver()
+                obs.start(tabsDirectory: newDir)
+                tabStore.attachICloudObserver(obs)
+                iCloudObserver = obs
+            } else {
+                tabStore.attachICloudObserver(nil)
+            }
+            usingICloud = nowOnICloud
         }
         tabStore.loadAll()
     }
