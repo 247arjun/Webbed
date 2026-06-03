@@ -128,11 +128,23 @@ struct TabsListView: View {
 
 struct TabRowView: View {
     let tab: TabRecord
+    @ObservedObject private var favicons = FaviconCache.shared
+
     var body: some View {
         HStack(spacing: 10) {
-            Image(systemName: tab.isPinnedTab ? "pin.fill" : "globe")
-                .foregroundStyle(ThemeRegistry.theme(for: tab.themeID).controlTintColor.swiftUIColor)
-                .frame(width: 22)
+            Group {
+                if let img = favicons.image(forRef: tab.faviconRef) {
+                    Image(uiImage: img)
+                        .resizable()
+                        .scaledToFit()
+                } else {
+                    Image(systemName: tab.isPinnedTab ? "pin.fill" : "globe")
+                        .foregroundStyle(ThemeRegistry.theme(for: tab.themeID).controlTintColor.swiftUIColor)
+                }
+            }
+            .frame(width: 22, height: 22)
+            .id(favicons.version)
+
             VStack(alignment: .leading, spacing: 2) {
                 Text(tab.displayTitle)
                     .font(.body)

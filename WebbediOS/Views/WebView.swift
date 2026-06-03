@@ -28,6 +28,7 @@ struct WebView: UIViewRepresentable {
         let webView = WebViewFactory.make(autoplayAllowed: autoplay, popupsAllowed: popups)
         webView.navigationDelegate = context.coordinator
         webView.uiDelegate         = context.coordinator
+        context.coordinator.installFaviconScript(on: webView)
         context.coordinator.attachKVO(to: webView)
         context.coordinator.webView = webView
         if let url { webView.load(URLRequest(url: url)) }
@@ -60,7 +61,7 @@ struct WebView: UIViewRepresentable {
 
     // MARK: - Coordinator
 
-    final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate {
+    final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler {
         var parent: WebView
         weak var webView: WKWebView?
         private var observers: [NSKeyValueObservation] = []
@@ -70,6 +71,54 @@ struct WebView: UIViewRepresentable {
 
         deinit {
             observers.forEach { $0.invalidate() }
+        }
+
+        func installFaviconScript(on webView: WKWebView) {
+            let source = #"""
+            (function() {
+                function bestIcon() {
+                    var links = document.querySelectorAll('link[rel~="icon"]');
+                    if (links.length === 0) return null;
+                    var best = null, bestSize = 0;
+                    for (var i = 0; i < links.length; i++) {
+                        var l = links[i];
+                        var sizesAttr = (l.getAttribute('sizes') || '').toLowerCase();
+                        var sz = 0;
+                        if (sizesAttr === 'any') { sz = 9999; }
+                        else { var m = sizesAttr.match(/(\d+)x\d+/); if (m) sz = parseInt(m[1], 10); }
+                        if (best === null || sz > bestSize) { best = l; bestSize = sz; }
+                    }
+                    return best ? best.href : null;
+                }
+                function report() {
+                    var href = bestIcon();
+                    if (href) { window.webkit.messageHandlers.favicon.postMessage(href); }
+                }
+                if (document.readyState === 'loading') {
+                    document.addEventListener('DOMContentLoaded', report);
+                } else {
+                    report();
+                }
+            })();
+            """#
+            let script = WKUserScript(source: source,
+                                      injectionTime: .atDocumentEnd,
+                                      forMainFrameOnly: true)
+            webView.configuration.userContentController.addUserScript(script)
+            webView.configuration.userContentController.add(self, name: "favicon")
+        }
+
+        nonisolated func userContentController(_ userContentController: WKUserContentController,
+                                               didReceive message: WKScriptMessage) {
+            Task { @MainActor in
+                guard message.name == "favicon",
+                      let href = message.body as? String,
+                      let url = URL(string: href) else { return }
+                let tabID = self.parent.tabID
+                if let ref = await FaviconCache.shared.fetch(iconURL: url) {
+                    AppModel.shared.tabStore.updateFaviconRef(tabID: tabID, ref: ref)
+                }
+            }
         }
 
         func attachKVO(to wv: WKWebView) {

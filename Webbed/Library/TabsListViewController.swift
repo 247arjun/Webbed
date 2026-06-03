@@ -295,11 +295,16 @@ private final class TabListRowView: NSView {
         url.lineBreakMode = .byTruncatingTail
         url.maximumNumberOfLines = 1
 
-        let dot = NSImageView()
-        let symbol = tab.isPinnedTab ? "pin.fill" : "globe"
-        dot.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
-        dot.contentTintColor = ThemeRegistry.theme(for: tab.themeID).controlTintColor
-        dot.translatesAutoresizingMaskIntoConstraints = false
+        let icon = NSImageView()
+        icon.translatesAutoresizingMaskIntoConstraints = false
+        if let favicon = FaviconCache.shared.image(forRef: tab.faviconRef) {
+            icon.image = favicon
+            icon.imageScaling = .scaleProportionallyDown
+        } else {
+            let symbol = tab.isPinnedTab ? "pin.fill" : "globe"
+            icon.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
+            icon.contentTintColor = ThemeRegistry.theme(for: tab.themeID).controlTintColor
+        }
 
         let stack = NSStackView(views: [title, url])
         stack.orientation = .vertical
@@ -307,15 +312,15 @@ private final class TabListRowView: NSView {
         stack.spacing = 2
         stack.translatesAutoresizingMaskIntoConstraints = false
 
-        addSubview(dot)
+        addSubview(icon)
         addSubview(stack)
 
         NSLayoutConstraint.activate([
-            dot.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
-            dot.centerYAnchor.constraint(equalTo: centerYAnchor),
-            dot.widthAnchor.constraint(equalToConstant: 18),
-            dot.heightAnchor.constraint(equalToConstant: 18),
-            stack.leadingAnchor.constraint(equalTo: dot.trailingAnchor, constant: 10),
+            icon.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
+            icon.centerYAnchor.constraint(equalTo: centerYAnchor),
+            icon.widthAnchor.constraint(equalToConstant: 18),
+            icon.heightAnchor.constraint(equalToConstant: 18),
+            stack.leadingAnchor.constraint(equalTo: icon.trailingAnchor, constant: 10),
             stack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
             stack.centerYAnchor.constraint(equalTo: centerYAnchor),
         ])

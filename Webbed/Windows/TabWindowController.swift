@@ -518,11 +518,11 @@ final class TabWindowController: NSWindowController,
             guard message.name == "favicon",
                   let href = message.body as? String,
                   let url = URL(string: href) else { return }
-            // For Phase 2 we just record the href hash as the favicon ref.
-            // FaviconCache (Phase 6) will download + cache PNG bytes.
-            let ref = SHA256.hash(data: Data(url.absoluteString.utf8))
-                .map { String(format: "%02x", $0) }.joined()
-            self.tabStore?.updateFaviconRef(tabID: self.tabID, ref: ref)
+            // Download + cache the actual bytes, then record the cache ref
+            // on the TabRecord so list rows can render the favicon.
+            if let ref = await FaviconCache.shared.fetch(iconURL: url) {
+                self.tabStore?.updateFaviconRef(tabID: self.tabID, ref: ref)
+            }
         }
     }
 
