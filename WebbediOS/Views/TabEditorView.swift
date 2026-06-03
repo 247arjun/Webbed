@@ -180,7 +180,7 @@ struct TabEditorView: View {
                     .frame(width: 22, height: 22)
             }
             .buttonStyle(.plain)
-            .foregroundStyle(Color(uiColor: chromeTheme.controlTintColor))
+            .foregroundStyle(.secondary)
 
             TextField("Search or enter website", text: $address,
                       onEditingChanged: { editing in isEditingAddress = editing },
@@ -191,8 +191,8 @@ struct TabEditorView: View {
                 .keyboardType(.URL)
                 .submitLabel(.go)
                 .font(.system(size: 16))
-                .foregroundStyle(Color(uiColor: chromeTheme.titleTextColor))
-                .tint(Color(uiColor: chromeTheme.controlTintColor))
+                .foregroundStyle(.primary)
+                .tint(.accentColor)
                 .frame(maxWidth: .infinity)
         }
         .padding(.horizontal, 16)
@@ -214,7 +214,7 @@ struct TabEditorView: View {
                     .frame(width: 44, height: 32)
             }
             .disabled(url == nil)
-            .foregroundStyle(Color(uiColor: chromeTheme.controlTintColor))
+            .foregroundStyle(.primary)
             .opacity(url == nil ? 0.4 : 1.0)
             Spacer(minLength: 0)
             actionButton(systemImage: currentTab()?.isPinnedTab == true ? "pin.fill" : "pin",
@@ -244,9 +244,8 @@ struct TabEditorView: View {
         }
         .disabled(!enabled)
         .accessibilityLabel(label)
-        .foregroundStyle(role == .destructive
-                         ? Color.red
-                         : Color(uiColor: chromeTheme.controlTintColor))
+        .foregroundStyle(role == .destructive ? AnyShapeStyle(Color.red)
+                                              : AnyShapeStyle(HierarchicalShapeStyle.primary))
         .opacity(enabled ? 1.0 : 0.4)
     }
 
