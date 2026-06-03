@@ -19,6 +19,14 @@ struct WebView: UIViewRepresentable {
     /// Set to a non-nil value to request an action; coordinator resets to nil
     /// after performing it.
     @Binding var pendingAction: WebAction?
+    /// Height of the chrome that floats above the bottom of the page (the
+    /// URL pill + action row). Pushed into the WKWebView as both an
+    /// `additionalSafeAreaInsets.bottom` (so well-behaved pages can use the
+    /// CSS `env(safe-area-inset-bottom)` value) AND a scrollView
+    /// `contentInset.bottom` (so older pages without safe-area CSS can still
+    /// be scrolled past their natural footer to reveal anything hiding under
+    /// the bar — cookie consents, sticky CTAs, etc.).
+    var bottomChromeHeight: CGFloat = 0
 
     func makeUIView(context: Context) -> WKWebView {
         let host = url?.host
@@ -28,14 +36,20 @@ struct WebView: UIViewRepresentable {
         let webView = WebViewFactory.make(autoplayAllowed: autoplay, popupsAllowed: popups)
         webView.navigationDelegate = context.coordinator
         webView.uiDelegate         = context.coordinator
+        // We manage the bottom inset manually so it matches our floating
+        // chrome — keep iOS from layering its own adjustment on top.
+        webView.scrollView.contentInsetAdjustmentBehavior = .never
         context.coordinator.installFaviconScript(on: webView)
         context.coordinator.attachKVO(to: webView)
         context.coordinator.webView = webView
+        applyBottomChromeInsets(to: webView)
         if let url { webView.load(URLRequest(url: url)) }
         return webView
     }
 
     func updateUIView(_ webView: WKWebView, context: Context) {
+        applyBottomChromeInsets(to: webView)
+
         // Apply pending action (Back/Forward/Reload/Stop/Load).
         if let action = pendingAction {
             switch action {
@@ -58,6 +72,56 @@ struct WebView: UIViewRepresentable {
     }
 
     func makeCoordinator() -> Coordinator { Coordinator(parent: self) }
+
+    /// Coordinator-facing reinjection hook; just defers to the private
+    /// applier so the JS runs again after a fresh navigation.
+    fileprivate func applyBottomChromeInsetsAfterLoad(_ webView: WKWebView) {
+        applyBottomChromeInsets(to: webView)
+    }
+
+    /// Push `bottomChromeHeight` into the web view as both a scroll-view
+    /// content inset (so older pages can scroll past their natural footer
+    /// to reveal anything hiding under the bar — cookie banners, sticky
+    /// CTAs) AND as a CSS custom property `--webbed-bottom-inset` that
+    /// our injected stylesheet adds to `padding-bottom` and bumps
+    /// `position: fixed; bottom: 0` elements up by, mimicking what Safari
+    /// gets for free via WKWebView's controller-level
+    /// additionalSafeAreaInsets.
+    private func applyBottomChromeInsets(to webView: WKWebView) {
+        let inset = bottomChromeHeight
+        // Match both insets so the scroll thumb aligns with content.
+        let sv = webView.scrollView
+        if abs(sv.contentInset.bottom - inset) > 0.5 {
+            sv.contentInset.bottom = inset
+        }
+        if abs(sv.verticalScrollIndicatorInsets.bottom - inset) > 0.5 {
+            sv.verticalScrollIndicatorInsets.bottom = inset
+        }
+        // Push the value into the page as a CSS custom property so
+        // fixed/sticky elements can move up. Idempotent — runs once per
+        // distinct value.
+        let js = """
+        (function() {
+            var h = \(inset).toFixed(2) + 'px';
+            if (document.documentElement.style.getPropertyValue('--webbed-bottom-inset') === h) return;
+            document.documentElement.style.setProperty('--webbed-bottom-inset', h);
+            var id = '__webbed_bottom_inset_style__';
+            var style = document.getElementById(id);
+            if (!style) {
+                style = document.createElement('style');
+                style.id = id;
+                style.textContent = `
+                    :root { --webbed-bottom-inset: \(inset)px; }
+                    html, body {
+                        padding-bottom: calc(env(safe-area-inset-bottom, 0px) + var(--webbed-bottom-inset, 0px)) !important;
+                    }
+                `;
+                (document.head || document.documentElement).appendChild(style);
+            }
+        })();
+        """
+        webView.evaluateJavaScript(js, completionHandler: nil)
+    }
 
     // MARK: - Coordinator
 
@@ -274,6 +338,10 @@ struct WebView: UIViewRepresentable {
         }
 
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+            // Re-apply the bottom-chrome insets so the freshly-loaded page
+            // picks up our --webbed-bottom-inset stylesheet too.
+            parent.applyBottomChromeInsetsAfterLoad(webView)
+
             snapshotWorkItem?.cancel()
             let tabID = parent.tabID
             let work = DispatchWorkItem { [weak self, weak webView] in

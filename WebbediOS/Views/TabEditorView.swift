@@ -24,6 +24,11 @@ struct TabEditorView: View {
     @State private var liveInterval: LiveModeInterval = .off
     @State private var showSitePermissions = false
     @State private var autoTintFromSite: Bool = true
+    /// Live height of the bottom chrome (URL pill + action row), measured
+    /// via a GeometryReader background. Pushed into the WKWebView so the
+    /// page can scroll past its natural footer and so CSS
+    /// `env(safe-area-inset-bottom)` reflects the floating chrome.
+    @State private var bottomChromeHeight: CGFloat = 0
 
     var body: some View {
         VStack(spacing: 0) {
@@ -41,12 +46,26 @@ struct TabEditorView: View {
                 canGoForward: $canGoForward,
                 isLoading: $isLoading,
                 estimatedProgress: $progress,
-                pendingAction: $pendingAction
+                pendingAction: $pendingAction,
+                bottomChromeHeight: bottomChromeHeight
             )
             .ignoresSafeArea(edges: bucket == .active ? [.bottom] : [])
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
             bottomChrome
+                .background(
+                    GeometryReader { proxy in
+                        Color.clear
+                            .preference(key: BottomChromeHeightKey.self,
+                                        value: proxy.size.height)
+                    }
+                )
+        }
+        .onPreferenceChange(BottomChromeHeightKey.self) { newHeight in
+            // Avoid SwiftUI invalidation churn for sub-point deltas.
+            if abs(newHeight - bottomChromeHeight) >= 0.5 {
+                bottomChromeHeight = newHeight
+            }
         }
         .navigationBarTitleDisplayMode(.inline)
         .toolbar { toolbarContent }
@@ -316,5 +335,18 @@ struct TabEditorView: View {
         }
         RunLoop.main.add(timer, forMode: .common)
         liveRefreshTimer = timer
+    }
+}
+
+// MARK: - BottomChromeHeightKey
+
+/// PreferenceKey that surfaces the live height of the floating bottom chrome
+/// up to the TabEditorView, which then pushes it into the WKWebView as a
+/// safe-area + content inset so page content underneath the bar (cookie
+/// banners, sticky CTAs) remains reachable.
+private struct BottomChromeHeightKey: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
     }
 }
