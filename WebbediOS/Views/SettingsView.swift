@@ -98,6 +98,14 @@ struct SettingsView: View {
                 }
             }
 
+            Section("Privacy") {
+                NavigationLink {
+                    SitePermissionsListView()
+                } label: {
+                    Label("Site Settings", systemImage: "slider.horizontal.3")
+                }
+            }
+
             Section("About") {
                 LabeledContent("Version",
                                value: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.1")

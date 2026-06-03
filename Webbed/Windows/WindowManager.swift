@@ -10,10 +10,12 @@ final class WindowManager {
 
     private var controllers: [UUID: TabWindowController] = [:]
     private weak var tabStore: TabStore?
+    private weak var permissionStore: PermissionStore?
     private var cascadePoint: NSPoint = .zero
 
-    init(tabStore: TabStore) {
+    init(tabStore: TabStore, permissionStore: PermissionStore) {
         self.tabStore = tabStore
+        self.permissionStore = permissionStore
 
         NotificationCenter.default.addObserver(
             self,
@@ -61,6 +63,7 @@ final class WindowManager {
         let frame = validatedFrame(tab.frame)
         let ctrl = TabWindowController(
             tabID: tabID, tabStore: store,
+            permissionStore: permissionStore,
             frame: frame.cgRect, theme: theme
         )
         ctrl.loadContent(from: tab)
@@ -79,6 +82,7 @@ final class WindowManager {
         let theme = ThemeRegistry.theme(for: tab.themeID)
         let ctrl = TabWindowController(
             tabID: tabID, tabStore: store,
+            permissionStore: permissionStore,
             frame: frame, theme: theme
         )
         ctrl.loadContent(from: tab)

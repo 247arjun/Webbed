@@ -10,6 +10,7 @@ final class AppModel: ObservableObject, TabIntentHost {
     static let shared = AppModel()
 
     let tabStore: TabStore
+    let permissionStore: PermissionStore
     private var persistence: FilePersistenceService
     private var iCloudObserver: iCloudChangeObserver?
 
@@ -24,6 +25,9 @@ final class AppModel: ObservableObject, TabIntentHost {
         let service = FilePersistenceService(directory: directory)
         self.persistence = service
         self.tabStore = TabStore(persistenceService: service)
+        self.permissionStore = PermissionStore(directoryProvider: {
+            AppModel.resolveStartupDirectory()
+        })
         self.usingICloud = StorageLocationResolver.iCloudAvailable
             && directory.path.contains("Mobile Documents")
 

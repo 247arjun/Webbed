@@ -10,13 +10,20 @@ import WebKit
 public enum WebViewFactory {
 
     /// Build a configured `WKWebView` ready to host a tab.
-    public static func make() -> WKWebView {
+    /// - Parameters:
+    ///   - autoplayAllowed: when false (default), media requires a user
+    ///     gesture before playing. Flip on for origins that have an
+    ///     `.allow` autoplay grant.
+    ///   - popupsAllowed: lets JavaScript open child windows without a
+    ///     user click. Off by default; flip per-origin via permissions.
+    public static func make(autoplayAllowed: Bool = false,
+                            popupsAllowed: Bool = false) -> WKWebView {
         let config = WKWebViewConfiguration()
         config.websiteDataStore = .default()
         config.allowsAirPlayForMediaPlayback = true
-        config.mediaTypesRequiringUserActionForPlayback = .all
+        config.mediaTypesRequiringUserActionForPlayback = autoplayAllowed ? [] : .all
         config.defaultWebpagePreferences.allowsContentJavaScript = true
-        config.preferences.javaScriptCanOpenWindowsAutomatically = false
+        config.preferences.javaScriptCanOpenWindowsAutomatically = popupsAllowed
 
         let webView = WKWebView(frame: .zero, configuration: config)
         webView.allowsBackForwardNavigationGestures = true
@@ -29,8 +36,10 @@ public enum WebViewFactory {
 
     /// Convenience: build and load if the tab has a URL, otherwise return a
     /// blank web view.
-    public static func make(for tab: TabRecord) -> WKWebView {
-        let wv = make()
+    public static func make(for tab: TabRecord,
+                            autoplayAllowed: Bool = false,
+                            popupsAllowed: Bool = false) -> WKWebView {
+        let wv = make(autoplayAllowed: autoplayAllowed, popupsAllowed: popupsAllowed)
         if let url = tab.url {
             wv.load(URLRequest(url: url))
         }

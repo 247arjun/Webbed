@@ -22,6 +22,7 @@ struct TabEditorView: View {
     @State private var showShare = false
     @State private var liveRefreshTimer: Timer?
     @State private var liveInterval: LiveModeInterval = .off
+    @State private var showSitePermissions = false
     @State private var themeID: String = ThemeRegistry.defaultThemeID
 
     var body: some View {
@@ -58,6 +59,11 @@ struct TabEditorView: View {
         .onDisappear {
             liveRefreshTimer?.invalidate()
             liveRefreshTimer = nil
+        }
+        .sheet(isPresented: $showSitePermissions) {
+            if let host = url?.host {
+                SitePermissionsSheet(host: host)
+            }
         }
         .onChange(of: url) { _, newURL in
             tabStore.updateURL(tabID: tabID, url: newURL)
@@ -99,6 +105,14 @@ struct TabEditorView: View {
                     Label("Open in Browser", systemImage: "safari")
                 }
                 .disabled(url == nil)
+
+                if let host = url?.host {
+                    Button {
+                        showSitePermissions = true
+                    } label: {
+                        Label("Site Settings for \(host)…", systemImage: "slider.horizontal.3")
+                    }
+                }
                 Button { togglePinnedTab() } label: {
                     Label(currentTab()?.isPinnedTab == true ? "Unpin from Library" : "Pin in Library",
                           systemImage: currentTab()?.isPinnedTab == true ? "pin.slash" : "pin")

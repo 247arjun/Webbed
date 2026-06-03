@@ -12,6 +12,7 @@ struct WebbedApp: App {
             RootView()
                 .environmentObject(appModel)
                 .environmentObject(appModel.tabStore)
+                .environmentObject(appModel.permissionStore)
         }
 
         // Per-tab scenes for iPadOS Stage Manager / Split View. On iPhone
@@ -21,6 +22,7 @@ struct WebbedApp: App {
                 TabSceneView(tabID: id)
                     .environmentObject(appModel)
                     .environmentObject(appModel.tabStore)
+                    .environmentObject(appModel.permissionStore)
             } else {
                 Text("No tab selected").foregroundStyle(.secondary)
             }

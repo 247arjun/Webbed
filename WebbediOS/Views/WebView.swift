@@ -21,7 +21,11 @@ struct WebView: UIViewRepresentable {
     @Binding var pendingAction: WebAction?
 
     func makeUIView(context: Context) -> WKWebView {
-        let webView = WebViewFactory.make()
+        let host = url?.host
+        let store = AppModel.shared.permissionStore
+        let autoplay = store.decision(for: host, kind: .autoplay) == .allow
+        let popups   = store.decision(for: host, kind: .popups)   == .allow
+        let webView = WebViewFactory.make(autoplayAllowed: autoplay, popupsAllowed: popups)
         webView.navigationDelegate = context.coordinator
         webView.uiDelegate         = context.coordinator
         context.coordinator.attachKVO(to: webView)
@@ -95,15 +99,76 @@ struct WebView: UIViewRepresentable {
             })
         }
 
-        // WKUIDelegate — open popups by loading inline.
+        // WKUIDelegate — popup intercept consults permission store.
         func webView(_ webView: WKWebView,
                      createWebViewWith configuration: WKWebViewConfiguration,
                      for navigationAction: WKNavigationAction,
                      windowFeatures: WKWindowFeatures) -> WKWebView? {
+            let host = navigationAction.sourceFrame.request.url?.host ?? webView.url?.host
+            if AppModel.shared.permissionStore.decision(for: host, kind: .popups) == .deny {
+                return nil
+            }
             if let url = navigationAction.request.url {
                 webView.load(URLRequest(url: url))
             }
             return nil
+        }
+
+        // WKUIDelegate — camera / mic capture consults the store.
+        func webView(_ webView: WKWebView,
+                     decideMediaCapturePermissionsFor origin: WKSecurityOrigin,
+                     initiatedBy frame: WKFrameInfo,
+                     type: WKMediaCaptureType) async -> WKPermissionDecision {
+            let host = origin.host
+            let kinds: [PermissionKind] = {
+                switch type {
+                case .camera:              return [.camera]
+                case .microphone:          return [.microphone]
+                case .cameraAndMicrophone: return [.camera, .microphone]
+                @unknown default:          return [.camera]
+                }
+            }()
+            let store = AppModel.shared.permissionStore
+            var anyDeny = false; var allAllow = true
+            for kind in kinds {
+                let d = store.decision(for: host, kind: kind)
+                if d == .deny  { anyDeny = true }
+                if d != .allow { allAllow = false }
+            }
+            if anyDeny  { return .deny }
+            if allAllow { return .grant }
+            return .prompt
+        }
+
+        // WKNavigationDelegate — per-origin gates (JS, mixed content,
+        // open-in-external).
+        func webView(_ webView: WKWebView,
+                     decidePolicyFor navigationAction: WKNavigationAction,
+                     preferences: WKWebpagePreferences) async -> (WKNavigationActionPolicy, WKWebpagePreferences) {
+            let url  = navigationAction.request.url
+            let host = url?.host
+            let store = AppModel.shared.permissionStore
+
+            // 1. Open-in-external (main frame, same host as click target).
+            if navigationAction.targetFrame?.isMainFrame == true,
+               let host, let url,
+               store.decision(for: host, kind: .openInExternal) == .allow,
+               url.host == host {
+                await MainActor.run { UIApplication.shared.open(url) }
+                return (.cancel, preferences)
+            }
+
+            // 2. Block insecure subresources unless allowed.
+            if let url, url.scheme == "http",
+               let main = webView.url, main.scheme == "https",
+               navigationAction.targetFrame?.isMainFrame != true,
+               store.decision(for: main.host, kind: .insecureContent) != .allow {
+                return (.cancel, preferences)
+            }
+
+            // 3. Per-origin JavaScript gate.
+            preferences.allowsContentJavaScript = store.decision(for: host, kind: .javascript) != .deny
+            return (.allow, preferences)
         }
 
         // WKNavigationDelegate — debounced snapshot capture (mirrors macOS).

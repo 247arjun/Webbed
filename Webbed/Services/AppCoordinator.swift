@@ -14,6 +14,7 @@ final class AppCoordinator: ObservableObject, TabIntentHost {
 
     let tabStore: TabStore
     let windowManager: WindowManager
+    let permissionStore: PermissionStore
     private(set) var persistenceService: PersistenceService
     private var libraryWindowController: LibraryWindowController?
     private var iCloudObserver: iCloudChangeObserver?
@@ -22,10 +23,14 @@ final class AppCoordinator: ObservableObject, TabIntentHost {
         let dir = AppSettings.shared.effectiveSaveDirectory
         let persistence = FilePersistenceService(directory: dir)
         let store = TabStore(persistenceService: persistence)
+        let permissions = PermissionStore(directoryProvider: {
+            AppSettings.shared.effectiveSaveDirectory
+        })
 
         self.persistenceService = persistence
         self.tabStore = store
-        self.windowManager = WindowManager(tabStore: store)
+        self.permissionStore = permissions
+        self.windowManager = WindowManager(tabStore: store, permissionStore: permissions)
 
         if AppSettings.shared.syncWithICloud,
            StorageLocationResolver.iCloudDirectory() != nil {

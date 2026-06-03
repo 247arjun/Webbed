@@ -17,20 +17,30 @@ final class TabWindowController: NSWindowController,
 
     let tabID: UUID
     private weak var tabStore: TabStore?
+    private weak var permissionStore: PermissionStore?
     private(set) var contentView: TabContentView
     private var kvoObservers: [NSKeyValueObservation] = []
     private var snapshotWorkItem: DispatchWorkItem?
     private var themePopover: NSPopover?
     private var liveModePopover: NSPopover?
+    private var permissionsPopover: NSPopover?
     private var liveRefreshTimer: Timer?
 
     // MARK: - Init
 
-    init(tabID: UUID, tabStore: TabStore, frame: NSRect, theme: WebbedTheme) {
+    init(tabID: UUID, tabStore: TabStore,
+         permissionStore: PermissionStore?,
+         frame: NSRect, theme: WebbedTheme) {
         self.tabID = tabID
         self.tabStore = tabStore
+        self.permissionStore = permissionStore
 
-        let webView = WebViewFactory.make()
+        // Per-origin autoplay / popup grants from the initial URL (if any).
+        let initialHost = tabStore.tabs[tabID]?.url?.host
+        let autoplay = permissionStore?.decision(for: initialHost, kind: .autoplay) == .allow
+        let popups   = permissionStore?.decision(for: initialHost, kind: .popups)   == .allow
+
+        let webView = WebViewFactory.make(autoplayAllowed: autoplay, popupsAllowed: popups)
         contentView = TabContentView(tabID: tabID, theme: theme, webView: webView)
 
         let window = TabWindow(contentRect: frame)
@@ -222,6 +232,36 @@ final class TabWindowController: NSWindowController,
         let dup = menu.addItem(withTitle: "Duplicate Tab", action: #selector(menuDuplicate), keyEquivalent: "")
         dup.target = self
         menu.addItem(.separator())
+
+        // Per-origin quick toggles.
+        if let host = currentHost() {
+            let jsRule = permissionStore?.decision(for: host, kind: .javascript) ?? .allow
+            let jsItem = menu.addItem(
+                withTitle: jsRule == .deny ? "Enable JavaScript on \(host)" : "Disable JavaScript on \(host)",
+                action: #selector(menuToggleJavaScript),
+                keyEquivalent: ""
+            )
+            jsItem.target = self
+            if jsRule == .deny { jsItem.state = .on }
+
+            let popupRule = permissionStore?.decision(for: host, kind: .popups) ?? .deny
+            let popItem = menu.addItem(
+                withTitle: popupRule == .allow ? "Block Pop-ups on \(host)" : "Allow Pop-ups on \(host)",
+                action: #selector(menuTogglePopups),
+                keyEquivalent: ""
+            )
+            popItem.target = self
+
+            let siteSettings = menu.addItem(
+                withTitle: "Site Settings…",
+                action: #selector(menuOpenSiteSettings(_:)),
+                keyEquivalent: ""
+            )
+            siteSettings.target = self
+            siteSettings.representedObject = sourceButton
+            menu.addItem(.separator())
+        }
+
         let pinTab = menu.addItem(
             withTitle: (tabStore?.tabs[tabID]?.isPinnedTab ?? false) ? "Unpin from Library" : "Pin in Library",
             action: #selector(menuTogglePinnedTab),
@@ -256,12 +296,49 @@ final class TabWindowController: NSWindowController,
         window?.close()
     }
 
+    @objc private func menuToggleJavaScript() {
+        guard let host = currentHost(), let store = permissionStore else { return }
+        let current = store.decision(for: host, kind: .javascript)
+        let next: PermissionDecision = current == .deny ? .allow : .deny
+        store.setDecision(for: host, kind: .javascript, decision: next)
+        contentView.webView.reload()
+    }
+
+    @objc private func menuTogglePopups() {
+        guard let host = currentHost(), let store = permissionStore else { return }
+        let current = store.decision(for: host, kind: .popups)
+        let next: PermissionDecision = current == .allow ? .deny : .allow
+        store.setDecision(for: host, kind: .popups, decision: next)
+    }
+
+    @objc private func menuOpenSiteSettings(_ sender: NSMenuItem) {
+        guard let host = currentHost(),
+              let store = permissionStore,
+              let anchor = sender.representedObject as? NSView else { return }
+        let vc = SitePermissionsPopoverController(host: host, store: store) { [weak self] in
+            // Reload after the popover closes if any reload-required rules
+            // were changed (cheapest correct behavior).
+            self?.contentView.webView.reload()
+        }
+        let popover = NSPopover()
+        popover.contentViewController = vc
+        popover.behavior = .transient
+        popover.show(relativeTo: anchor.bounds, of: anchor, preferredEdge: .minY)
+        permissionsPopover = popover
+    }
+
     // MARK: - WKUIDelegate (new windows)
 
     func webView(_ webView: WKWebView,
                  createWebViewWith configuration: WKWebViewConfiguration,
                  for navigationAction: WKNavigationAction,
                  windowFeatures: WKWindowFeatures) -> WKWebView? {
+        // Per-origin popup gate.
+        let host = navigationAction.sourceFrame.request.url?.host ?? currentHost()
+        if permissionStore?.decision(for: host, kind: .popups) == .deny {
+            Log.web.debug("Pop-up suppressed for \(host ?? "", privacy: .public)")
+            return nil
+        }
         // Open in a new tab/window of our own rather than letting WebKit do it.
         if let url = navigationAction.request.url {
             NotificationCenter.default.post(
@@ -273,7 +350,66 @@ final class TabWindowController: NSWindowController,
         return nil
     }
 
+    // MARK: - WKUIDelegate (capture & geolocation prompts)
+
+    func webView(_ webView: WKWebView,
+                 decideMediaCapturePermissionsFor origin: WKSecurityOrigin,
+                 initiatedBy frame: WKFrameInfo,
+                 type: WKMediaCaptureType) async -> WKPermissionDecision {
+        let host = origin.host
+        let kinds: [PermissionKind] = {
+            switch type {
+            case .camera:              return [.camera]
+            case .microphone:          return [.microphone]
+            case .cameraAndMicrophone: return [.camera, .microphone]
+            @unknown default:          return [.camera]
+            }
+        }()
+        var anyDeny = false; var allAllow = true
+        for kind in kinds {
+            let d = permissionStore?.decision(for: host, kind: kind) ?? kind.defaultDecision
+            if d == .deny  { anyDeny = true }
+            if d != .allow { allAllow = false }
+        }
+        if anyDeny  { return .deny }
+        if allAllow { return .grant }
+        return .prompt
+    }
+
     // MARK: - WKNavigationDelegate (snapshot trigger)
+
+    func webView(_ webView: WKWebView,
+                 decidePolicyFor navigationAction: WKNavigationAction,
+                 preferences: WKWebpagePreferences) async -> (WKNavigationActionPolicy, WKWebpagePreferences) {
+
+        let url  = navigationAction.request.url
+        let host = url?.host
+
+        // 1. Per-origin "always open in external browser" → hand off + cancel.
+        if navigationAction.navigationType == .linkActivated || navigationAction.targetFrame?.isMainFrame == true,
+           let host, let url,
+           permissionStore?.decision(for: host, kind: .openInExternal) == .allow,
+           url.host == host {
+            InstalledBrowsers.open(url, with: AppSettings.shared.externalBrowserBundleID)
+            return (.cancel, preferences)
+        }
+
+        // 2. Mixed-content gate: block http subresources inside https main
+        //    documents unless the origin opts in.
+        if let url, url.scheme == "http",
+           let main = webView.url, main.scheme == "https",
+           navigationAction.targetFrame?.isMainFrame != true,
+           permissionStore?.decision(for: main.host, kind: .insecureContent) != .allow {
+            Log.web.debug("Blocked insecure subresource \(url.absoluteString, privacy: .public)")
+            return (.cancel, preferences)
+        }
+
+        // 3. Per-origin JavaScript gate.
+        let jsAllowed = permissionStore?.decision(for: host, kind: .javascript) != .deny
+        preferences.allowsContentJavaScript = jsAllowed
+
+        return (.allow, preferences)
+    }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         // Debounce snapshot capture so rapid navigations don't churn.
@@ -419,6 +555,12 @@ final class TabWindowController: NSWindowController,
         RunLoop.main.add(timer, forMode: .common)
         liveRefreshTimer = timer
         Log.web.info("Live Mode \(interval.shortLabel, privacy: .public) for \(self.tabID, privacy: .public)")
+    }
+
+    // MARK: - Origin helper
+
+    private func currentHost() -> String? {
+        contentView.webView.url?.host ?? tabStore?.tabs[tabID]?.url?.host
     }
 }
 
