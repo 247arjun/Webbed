@@ -25,19 +25,33 @@ builds without any developer account configuration.
 
 ## iCloud Sync (Phase 5)
 
-iCloud-backed sync is implemented but the entitlement keys are commented
-out in the `.entitlements` files so ad-hoc-signed builds work out of the
-box. To turn iCloud sync on:
+iCloud-backed sync is **enabled** by default. Both targets ship with the
+`com.apple.developer.icloud-container-identifiers`,
+`com.apple.developer.icloud-services` (`CloudDocuments`) and
+`com.apple.developer.ubiquity-container-identifiers` entitlements
+pointing at `iCloud.com.arjun.Webbed`, and the matching
+`NSUbiquitousContainers` block in each `Info.plist` so the container
+surfaces as "Webbed" in iCloud Drive / the Files app.
 
-1. Copy `Configs/Signing.local.xcconfig.example` →
-   `Configs/Signing.local.xcconfig` and fill in your `DEVELOPMENT_TEAM`.
-2. Uncomment the `com.apple.developer.icloud-*` blocks in both
-   `Webbed/Resources/Webbed.entitlements` and
-   `WebbediOS/Resources/WebbediOS.entitlements`.
-3. Uncomment the matching `NSUbiquitousContainers` block in both
-   `Info.plist` files.
-4. Re-run `xcodegen generate` and build.
+Requirements for sync to actually flow:
 
-Once configured, the `iCloudChangeObserver` in `WebbedKit` picks up
-external `<uuid>.json` updates in the Webbed ubiquity container and
+1. A real `DEVELOPMENT_TEAM` in `Configs/Signing.local.xcconfig` (copy
+   from `Signing.local.xcconfig.example`).
+2. The `iCloud.com.arjun.Webbed` container registered against that team
+   (Xcode → Signing & Capabilities → iCloud, or
+   developer.apple.com → Identifiers → iCloud Containers).
+3. Both devices signed into the same iCloud account with iCloud Drive
+   enabled.
+
+When `StorageLocationResolver.iCloudAvailable` is true,
+`AppSettings.syncWithICloud` defaults to `true` and
+`effectiveSaveDirectory` resolves to the ubiquity container's
+`Documents/` folder. The `iCloudChangeObserver` in `WebbedKit` then
+picks up external `<uuid>.json` updates via `NSMetadataQuery` and
 patches them into the in-memory `TabStore`.
+
+If you need to build a fresh clone with **no Apple Developer account**,
+re-comment the `com.apple.developer.icloud-*` keys in both
+`*.entitlements` files (and the `NSUbiquitousContainers` blocks in the
+`Info.plist`s) and re-run `xcodegen generate` — the app will fall back
+to the local sandbox container automatically.

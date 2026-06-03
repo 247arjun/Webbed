@@ -474,7 +474,7 @@ Handoff (`NSUserActivity` with `webpageURL`) is a stretch goal — easy because 
 4. Per-tab `WindowGroup(for: UUID.self)` scene for iPadOS multi-window.
 
 ### Phase 5 — Sync
-1. iCloud container wiring (Webbed entitlement + ubiquity container ID).
+1. iCloud container wiring (Webbed entitlement + ubiquity container ID). **DONE** — `iCloud.com.arjun.Webbed` declared in both targets' entitlements and `Info.plist` `NSUbiquitousContainers`; container registered in Xcode under team `24CVMV6NZZ`.
 2. `iCloudChangeObserver` adapted; verify external updates land in `TabStore`.
 3. `isClosed` left local; snapshot sync toggle.
 
