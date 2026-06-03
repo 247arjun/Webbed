@@ -30,6 +30,8 @@ struct MacSettingsView: View {
     @State private var mobileBreakpoint: Double = AppSettings.shared.mobileBreakpoint
     @State private var syncTabPreviews: Bool = AppSettings.shared.syncTabPreviews
     @State private var syncWithICloud: Bool = AppSettings.shared.syncWithICloud
+    @State private var externalBrowserBundleID: String = AppSettings.shared.externalBrowserBundleID
+    @State private var browsers: [InstalledBrowser] = []
 
     var body: some View {
         Form {
@@ -45,6 +47,20 @@ struct MacSettingsView: View {
                 TextField("Homepage", text: $homepage, prompt: Text("https://example.com"))
                     .onSubmit { commitHomepage() }
             } header: { Text("Browsing") }
+
+            Section {
+                Picker("Open in Browser", selection: $externalBrowserBundleID) {
+                    ForEach(browsers) { b in
+                        Text(b.displayName).tag(b.bundleID)
+                    }
+                }
+                .onChange(of: externalBrowserBundleID) { _, new in
+                    AppSettings.shared.externalBrowserBundleID = new
+                }
+                Text("Used by the **Open in Browser** button in each tab window.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } header: { Text("External Browser") }
 
             Section {
                 Picker("Default Theme", selection: $defaultTheme) {
@@ -91,6 +107,14 @@ struct MacSettingsView: View {
         .formStyle(.grouped)
         .padding()
         .frame(minWidth: 460, idealWidth: 480, minHeight: 380)
+        .onAppear {
+            browsers = InstalledBrowsers.all()
+            // If the previously-chosen browser was uninstalled, fall back.
+            if !browsers.contains(where: { $0.bundleID == externalBrowserBundleID }) {
+                externalBrowserBundleID = InstalledBrowsers.systemDefaultBundleID
+                AppSettings.shared.externalBrowserBundleID = externalBrowserBundleID
+            }
+        }
     }
 
     private func commitHomepage() {

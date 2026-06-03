@@ -91,6 +91,12 @@ struct TabEditorView: View {
         ToolbarItem(placement: .topBarTrailing) {
             Menu {
                 Button { showShare = true } label: { Label("Share…", systemImage: "square.and.arrow.up") }
+                Button {
+                    if let url = url { UIApplication.shared.open(url) }
+                } label: {
+                    Label("Open in Browser", systemImage: "arrow.up.right.square")
+                }
+                .disabled(url == nil)
                 Button { togglePinnedTab() } label: {
                     Label(currentTab()?.isPinnedTab == true ? "Unpin from Library" : "Pin in Library",
                           systemImage: currentTab()?.isPinnedTab == true ? "pin.slash" : "pin")

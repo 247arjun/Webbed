@@ -42,6 +42,7 @@ public final class AppSettings {
         static let mobileBreakpoint     = "mobileBreakpoint"
         static let syncWithICloud       = "syncWithICloud"
         static let syncTabPreviews      = "syncTabPreviews"
+        static let externalBrowserBundleID = "externalBrowserBundleID"
     }
 
     private init() {}
@@ -171,5 +172,15 @@ public final class AppSettings {
             return v > 0 ? v : 600
         }
         set { defaults.set(newValue, forKey: Key.mobileBreakpoint) }
+    }
+
+    /// Bundle ID of the external browser used by "Open in Browser". A value
+    /// of `InstalledBrowsers.systemDefaultBundleID` (the default) means the
+    /// system default browser.
+    public var externalBrowserBundleID: String {
+        get {
+            defaults.string(forKey: Key.externalBrowserBundleID) ?? InstalledBrowsers.systemDefaultBundleID
+        }
+        set { defaults.set(newValue, forKey: Key.externalBrowserBundleID) }
     }
 }

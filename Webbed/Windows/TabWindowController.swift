@@ -195,6 +195,11 @@ final class TabWindowController: NSWindowController,
         liveModePopover = popover
     }
 
+    func tabContentViewDidClickOpenExternal(_ view: TabContentView) {
+        guard let url = view.webView.url ?? tabStore?.tabs[tabID]?.url else { return }
+        InstalledBrowsers.open(url, with: AppSettings.shared.externalBrowserBundleID)
+    }
+
     func tabContentViewDidClickTheme(_ view: TabContentView, sourceButton: NSButton) {
         let currentID = tabStore?.tabs[tabID]?.themeID ?? ThemeRegistry.defaultThemeID
         let picker = ThemePickerViewController(currentThemeID: currentID) { [weak self] themeID in
