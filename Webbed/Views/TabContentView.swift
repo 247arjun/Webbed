@@ -101,9 +101,9 @@ final class TabContentView: NSView {
         forwardButton = Self.headerButton(symbol: "chevron.right", label: "Forward")
         reloadButton  = Self.headerButton(symbol: "arrow.clockwise", label: "Reload")
         pinButton     = Self.headerButton(symbol: "pin",            label: "Pin tab on top")
-        liveButton    = Self.headerButton(symbol: "dot.radiowaves.left.and.right", label: "Live Mode")
+        liveButton    = Self.headerButton(symbol: "bolt.circle",     label: "Live Mode")
         themeButton   = Self.headerButton(symbol: "paintpalette",   label: "Theme")
-        openExternalButton = Self.headerButton(symbol: "arrow.up.right.square", label: "Open in Browser")
+        openExternalButton = Self.headerButton(symbol: "safari", label: "Open in Browser")
         moreButton    = Self.headerButton(symbol: "ellipsis",       label: "More")
         closeButton   = Self.headerButton(symbol: "xmark",          label: "Close tab")
 
@@ -180,14 +180,14 @@ final class TabContentView: NSView {
 
     func updateLiveModeGlyph(_ interval: LiveModeInterval) {
         let active = interval != .off
-        let symbol = active ? "dot.radiowaves.left.and.right" : "dot.radiowaves.left.and.right"
+        let symbol = active ? "bolt.circle.fill" : "bolt.circle"
         let config = NSImage.SymbolConfiguration(pointSize: 12, weight: .medium)
         liveButton.image = NSImage(systemSymbolName: symbol,
                                    accessibilityDescription: "Live Mode")?
             .withSymbolConfiguration(config)
         // Highlight the active state with a tinted background ring.
         if active {
-            liveButton.contentTintColor = NSColor.systemRed
+            liveButton.contentTintColor = NSColor.systemYellow
             liveButton.toolTip = "Live Mode: \(interval.displayName)"
         } else {
             liveButton.contentTintColor = theme.controlTintColor

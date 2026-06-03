@@ -94,7 +94,7 @@ struct TabEditorView: View {
                 Button {
                     if let url = url { UIApplication.shared.open(url) }
                 } label: {
-                    Label("Open in Browser", systemImage: "arrow.up.right.square")
+                    Label("Open in Browser", systemImage: "safari")
                 }
                 .disabled(url == nil)
                 Button { togglePinnedTab() } label: {
@@ -115,7 +115,7 @@ struct TabEditorView: View {
                     }
                 } label: {
                     Label("Live Mode…" + (liveInterval == .off ? "" : " (\(liveInterval.shortLabel))"),
-                          systemImage: liveInterval == .off ? "dot.radiowaves.left.and.right" : "dot.radiowaves.left.and.right")
+                          systemImage: liveInterval == .off ? "bolt.circle" : "bolt.circle.fill")
                 }
                 Divider()
                 if bucket == .active {
