@@ -20,6 +20,8 @@ struct TabEditorView: View {
     @State private var progress: Double = 0
     @State private var pendingAction: WebAction? = nil
     @State private var showShare = false
+    @State private var liveRefreshTimer: Timer?
+    @State private var liveInterval: LiveModeInterval = .off
 
     var body: some View {
         VStack(spacing: 0) {
@@ -48,6 +50,12 @@ struct TabEditorView: View {
             self.url = tab?.url
             self.title = tab?.displayTitle ?? ""
             self.address = tab?.displayURLString ?? ""
+            self.liveInterval = tab?.liveModeInterval ?? .off
+            scheduleLiveRefresh(interval: liveInterval)
+        }
+        .onDisappear {
+            liveRefreshTimer?.invalidate()
+            liveRefreshTimer = nil
         }
         .onChange(of: url) { _, newURL in
             tabStore.updateURL(tabID: tabID, url: newURL)
@@ -86,6 +94,22 @@ struct TabEditorView: View {
                 Button { togglePinnedTab() } label: {
                     Label(currentTab()?.isPinnedTab == true ? "Unpin from Library" : "Pin in Library",
                           systemImage: currentTab()?.isPinnedTab == true ? "pin.slash" : "pin")
+                }
+                Menu {
+                    ForEach(LiveModeInterval.allCases) { option in
+                        Button {
+                            setLiveMode(option)
+                        } label: {
+                            if option == liveInterval {
+                                Label(option.displayName, systemImage: "checkmark")
+                            } else {
+                                Text(option.displayName)
+                            }
+                        }
+                    }
+                } label: {
+                    Label("Live Mode…" + (liveInterval == .off ? "" : " (\(liveInterval.shortLabel))"),
+                          systemImage: liveInterval == .off ? "dot.radiowaves.left.and.right" : "dot.radiowaves.left.and.right")
                 }
                 Divider()
                 if bucket == .active {
@@ -158,5 +182,22 @@ struct TabEditorView: View {
     private func togglePinnedTab() {
         guard let tab = currentTab() else { return }
         tabStore.updatePinnedTab(tabID: tabID, isPinnedTab: !tab.isPinnedTab)
+    }
+
+    private func setLiveMode(_ interval: LiveModeInterval) {
+        liveInterval = interval
+        tabStore.updateLiveMode(tabID: tabID, interval: interval)
+        scheduleLiveRefresh(interval: interval)
+    }
+
+    private func scheduleLiveRefresh(interval: LiveModeInterval) {
+        liveRefreshTimer?.invalidate()
+        liveRefreshTimer = nil
+        guard let seconds = interval.seconds else { return }
+        let timer = Timer.scheduledTimer(withTimeInterval: seconds, repeats: true) { _ in
+            Task { @MainActor in pendingAction = .reload }
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        liveRefreshTimer = timer
     }
 }

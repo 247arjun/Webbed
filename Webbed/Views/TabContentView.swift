@@ -13,6 +13,7 @@ protocol TabContentViewDelegate: AnyObject {
     func tabContentViewDidClickStop(_ view: TabContentView)
     func tabContentViewDidClickClose(_ view: TabContentView)
     func tabContentViewDidClickPin(_ view: TabContentView)
+    func tabContentViewDidClickLiveMode(_ view: TabContentView, sourceButton: NSButton)
     func tabContentViewDidClickTheme(_ view: TabContentView, sourceButton: NSButton)
     func tabContentViewDidClickMore(_ view: TabContentView, sourceButton: NSButton)
 }
@@ -20,6 +21,7 @@ protocol TabContentViewDelegate: AnyObject {
 // Default no-op implementations so phases can adopt only what they need.
 extension TabContentViewDelegate {
     func tabContentViewDidClickPin(_ view: TabContentView) {}
+    func tabContentViewDidClickLiveMode(_ view: TabContentView, sourceButton: NSButton) {}
     func tabContentViewDidClickTheme(_ view: TabContentView, sourceButton: NSButton) {}
     func tabContentViewDidClickMore(_ view: TabContentView, sourceButton: NSButton) {}
 }
@@ -71,6 +73,7 @@ final class TabContentView: NSView {
     let reloadButton:  NSButton
     let addressField:  NSTextField
     let pinButton:     NSButton
+    let liveButton:    NSButton
     let themeButton:   NSButton
     let moreButton:    NSButton
     let closeButton:   NSButton
@@ -95,6 +98,7 @@ final class TabContentView: NSView {
         forwardButton = Self.headerButton(symbol: "chevron.right", label: "Forward")
         reloadButton  = Self.headerButton(symbol: "arrow.clockwise", label: "Reload")
         pinButton     = Self.headerButton(symbol: "pin",            label: "Pin tab on top")
+        liveButton    = Self.headerButton(symbol: "dot.radiowaves.left.and.right", label: "Live Mode")
         themeButton   = Self.headerButton(symbol: "paintpalette",   label: "Theme")
         moreButton    = Self.headerButton(symbol: "ellipsis",       label: "More")
         closeButton   = Self.headerButton(symbol: "xmark",          label: "Close tab")
@@ -147,7 +151,7 @@ final class TabContentView: NSView {
             )
         }
 
-        for b in [backButton, forwardButton, reloadButton, pinButton, themeButton, moreButton, closeButton] {
+        for b in [backButton, forwardButton, reloadButton, pinButton, liveButton, themeButton, moreButton, closeButton] {
             b.contentTintColor = newTheme.controlTintColor
         }
 
@@ -168,6 +172,24 @@ final class TabContentView: NSView {
             .withSymbolConfiguration(config)
         pinButton.setAccessibilityLabel(pinned ? "Unpin tab" : "Pin tab")
         pinButton.setAccessibilityValue(pinned ? "pinned" : "unpinned")
+    }
+
+    func updateLiveModeGlyph(_ interval: LiveModeInterval) {
+        let active = interval != .off
+        let symbol = active ? "dot.radiowaves.left.and.right" : "dot.radiowaves.left.and.right"
+        let config = NSImage.SymbolConfiguration(pointSize: 12, weight: .medium)
+        liveButton.image = NSImage(systemSymbolName: symbol,
+                                   accessibilityDescription: "Live Mode")?
+            .withSymbolConfiguration(config)
+        // Highlight the active state with a tinted background ring.
+        if active {
+            liveButton.contentTintColor = NSColor.systemRed
+            liveButton.toolTip = "Live Mode: \(interval.displayName)"
+        } else {
+            liveButton.contentTintColor = theme.controlTintColor
+            liveButton.toolTip = "Live Mode (off)"
+        }
+        liveButton.setAccessibilityValue(active ? interval.shortLabel : "off")
     }
 
     // MARK: - Address bar
@@ -216,7 +238,7 @@ final class TabContentView: NSView {
         addressField.translatesAutoresizingMaskIntoConstraints = false
         headerView.addSubview(addressField)
 
-        trailingButtonsStack = NSStackView(views: [pinButton, themeButton, moreButton, closeButton])
+        trailingButtonsStack = NSStackView(views: [pinButton, liveButton, themeButton, moreButton, closeButton])
         trailingButtonsStack.orientation = .horizontal
         trailingButtonsStack.spacing = 6
         trailingButtonsStack.alignment = .centerY
@@ -277,6 +299,7 @@ final class TabContentView: NSView {
         forwardButton.target = self; forwardButton.action = #selector(onForward)
         reloadButton.target  = self; reloadButton.action  = #selector(onReloadOrStop)
         pinButton.target     = self; pinButton.action     = #selector(onPin)
+        liveButton.target    = self; liveButton.action    = #selector(onLive)
         themeButton.target   = self; themeButton.action   = #selector(onTheme)
         moreButton.target    = self; moreButton.action    = #selector(onMore)
         closeButton.target   = self; closeButton.action   = #selector(onClose)
@@ -299,6 +322,7 @@ final class TabContentView: NSView {
         // In tiny mode, also hide pin + theme to give the URL field room.
         let tiny = widthMode == .tiny
         pinButton.isHidden   = tiny
+        liveButton.isHidden  = tiny
         themeButton.isHidden = tiny
 
         // Header band height.
@@ -325,6 +349,7 @@ final class TabContentView: NSView {
         else                  { delegate?.tabContentViewDidClickReload(self) }
     }
     @objc private func onPin()            { delegate?.tabContentViewDidClickPin(self) }
+    @objc private func onLive()           { delegate?.tabContentViewDidClickLiveMode(self, sourceButton: liveButton) }
     @objc private func onTheme()          { delegate?.tabContentViewDidClickTheme(self, sourceButton: themeButton) }
     @objc private func onMore()           { delegate?.tabContentViewDidClickMore(self, sourceButton: moreButton) }
     @objc private func onClose()          { delegate?.tabContentViewDidClickClose(self) }

@@ -31,6 +31,9 @@ public struct TabRecord: Codable, Identifiable, Equatable, Sendable {
     public var isInTrash: Bool
     public var trashedAt: Date?
 
+    /// Auto-refresh cadence for this window. `.off` = disabled.
+    public var liveModeInterval: LiveModeInterval
+
     public init(
         id: UUID = UUID(),
         url: URL? = nil,
@@ -50,7 +53,8 @@ public struct TabRecord: Codable, Identifiable, Equatable, Sendable {
         isArchived: Bool = false,
         manualSortOrder: Int = 0,
         isInTrash: Bool = false,
-        trashedAt: Date? = nil
+        trashedAt: Date? = nil,
+        liveModeInterval: LiveModeInterval = .off
     ) {
         self.id = id
         self.url = url
@@ -71,6 +75,7 @@ public struct TabRecord: Codable, Identifiable, Equatable, Sendable {
         self.manualSortOrder = manualSortOrder
         self.isInTrash = isInTrash
         self.trashedAt = trashedAt
+        self.liveModeInterval = liveModeInterval
     }
 
     // Backward-compatible decoding: any field added later defaults safely.
@@ -95,6 +100,7 @@ public struct TabRecord: Codable, Identifiable, Equatable, Sendable {
         self.manualSortOrder = try c.decodeIfPresent(Int.self,    forKey: .manualSortOrder) ?? 0
         self.isInTrash       = try c.decodeIfPresent(Bool.self,   forKey: .isInTrash) ?? false
         self.trashedAt       = try c.decodeIfPresent(Date.self,   forKey: .trashedAt)
+        self.liveModeInterval = try c.decodeIfPresent(LiveModeInterval.self, forKey: .liveModeInterval) ?? .off
     }
 
     /// Best-effort display title — falls back to host, then to "New Tab".

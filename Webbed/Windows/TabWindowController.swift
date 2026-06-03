@@ -21,6 +21,8 @@ final class TabWindowController: NSWindowController,
     private var kvoObservers: [NSKeyValueObservation] = []
     private var snapshotWorkItem: DispatchWorkItem?
     private var themePopover: NSPopover?
+    private var liveModePopover: NSPopover?
+    private var liveRefreshTimer: Timer?
 
     // MARK: - Init
 
@@ -61,7 +63,9 @@ final class TabWindowController: NSWindowController,
     func loadContent(from tab: TabRecord) {
         contentView.updateAddress(tab.displayURLString)
         contentView.updatePinState(tab.isPinned)
+        contentView.updateLiveModeGlyph(tab.liveModeInterval)
         applyPinLevel(tab.isPinned)
+        scheduleLiveRefresh(interval: tab.liveModeInterval)
         if let url = tab.url {
             contentView.webView.load(URLRequest(url: url))
         } else if let home = AppSettings.shared.homepageURL {
@@ -71,6 +75,10 @@ final class TabWindowController: NSWindowController,
 
     func applyTheme(_ theme: WebbedTheme) {
         contentView.applyTheme(theme)
+        // Reapply live-mode tint (the theme pass resets contentTintColor).
+        if let tab = tabStore?.tabs[tabID] {
+            contentView.updateLiveModeGlyph(tab.liveModeInterval)
+        }
     }
 
     /// Called by ResizeHandleView on mouseUp.
@@ -91,6 +99,8 @@ final class TabWindowController: NSWindowController,
     }
 
     func windowWillClose(_ notification: Notification) {
+        liveRefreshTimer?.invalidate()
+        liveRefreshTimer = nil
         tabStore?.markClosed(tabID: tabID, isClosed: true)
         NotificationCenter.default.post(name: .tabWindowDidClose, object: tabID)
         Log.window.debug("Window closed for tab \(self.tabID, privacy: .public)")
@@ -167,6 +177,22 @@ final class TabWindowController: NSWindowController,
         tabStore?.updatePinned(tabID: tabID, isPinned: newPinned)
         contentView.updatePinState(newPinned)
         applyPinLevel(newPinned)
+    }
+
+    func tabContentViewDidClickLiveMode(_ view: TabContentView, sourceButton: NSButton) {
+        let current = tabStore?.tabs[tabID]?.liveModeInterval ?? .off
+        let picker = LiveModePopoverController(current: current) { [weak self] interval in
+            guard let self else { return }
+            self.tabStore?.updateLiveMode(tabID: self.tabID, interval: interval)
+            self.contentView.updateLiveModeGlyph(interval)
+            self.scheduleLiveRefresh(interval: interval)
+            self.liveModePopover?.close()
+        }
+        let popover = NSPopover()
+        popover.contentViewController = picker
+        popover.behavior = .transient
+        popover.show(relativeTo: sourceButton.bounds, of: sourceButton, preferredEdge: .minY)
+        liveModePopover = popover
     }
 
     func tabContentViewDidClickTheme(_ view: TabContentView, sourceButton: NSButton) {
@@ -368,6 +394,26 @@ final class TabWindowController: NSWindowController,
 
     private func applyPinLevel(_ pinned: Bool) {
         window?.level = pinned ? .floating : .normal
+    }
+
+    // MARK: - Live Mode
+
+    private func scheduleLiveRefresh(interval: LiveModeInterval) {
+        liveRefreshTimer?.invalidate()
+        liveRefreshTimer = nil
+        guard let seconds = interval.seconds else {
+            Log.web.debug("Live Mode disabled for \(self.tabID, privacy: .public)")
+            return
+        }
+        let timer = Timer.scheduledTimer(withTimeInterval: seconds, repeats: true) { [weak self] _ in
+            Task { @MainActor in
+                self?.contentView.webView.reload()
+            }
+        }
+        // Keep firing during scroll / modal panels.
+        RunLoop.main.add(timer, forMode: .common)
+        liveRefreshTimer = timer
+        Log.web.info("Live Mode \(interval.shortLabel, privacy: .public) for \(self.tabID, privacy: .public)")
     }
 }
 

@@ -201,6 +201,14 @@ public final class TabStore: ObservableObject {
         persistImmediately(tabID)
     }
 
+    public func updateLiveMode(tabID: UUID, interval: LiveModeInterval) {
+        guard var tab = tabs[tabID] else { return }
+        tab.liveModeInterval = interval
+        tab.updatedAt = Date()
+        tabs[tabID] = tab
+        persistImmediately(tabID)
+    }
+
     public func updateFrame(tabID: UUID, frame: PersistedRect) {
         guard var tab = tabs[tabID] else { return }
         tab.frame = frame
