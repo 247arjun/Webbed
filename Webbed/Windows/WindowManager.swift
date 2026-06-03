@@ -28,6 +28,13 @@ final class WindowManager {
             name: .tabRequestedNewWindow,
             object: nil
         )
+
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleTabDuplicated(_:)),
+            name: .tabDuplicated,
+            object: nil
+        )
     }
 
     deinit {
@@ -115,6 +122,11 @@ final class WindowManager {
         guard let url = note.userInfo?["url"] as? URL, let store = tabStore else { return }
         let tab = store.createTab(url: url)
         openNewTabWindow(tabID: tab.id)
+    }
+
+    @objc private func handleTabDuplicated(_ note: Notification) {
+        guard let tabID = note.object as? UUID else { return }
+        openNewTabWindow(tabID: tabID)
     }
 
     private func nextCascadedFrame() -> NSRect {

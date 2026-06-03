@@ -1,6 +1,7 @@
 import AppKit
 import WebKit
 import WebbedKit
+import CryptoKit
 
 // MARK: - TabWindowController
 
@@ -11,13 +12,15 @@ final class TabWindowController: NSWindowController,
                                  NSWindowDelegate,
                                  TabContentViewDelegate,
                                  WKNavigationDelegate,
-                                 WKUIDelegate {
+                                 WKUIDelegate,
+                                 WKScriptMessageHandler {
 
     let tabID: UUID
     private weak var tabStore: TabStore?
     private(set) var contentView: TabContentView
     private var kvoObservers: [NSKeyValueObservation] = []
     private var snapshotWorkItem: DispatchWorkItem?
+    private var themePopover: NSPopover?
 
     // MARK: - Init
 
@@ -40,6 +43,7 @@ final class TabWindowController: NSWindowController,
         webView.navigationDelegate = self
         webView.uiDelegate = self
 
+        installFaviconScript(on: webView)
         installKVO(on: webView)
         contentView.applyResponsiveLayout(for: frame.size)
         Log.window.debug("Created window controller for tab \(tabID, privacy: .public)")
@@ -165,6 +169,62 @@ final class TabWindowController: NSWindowController,
         applyPinLevel(newPinned)
     }
 
+    func tabContentViewDidClickTheme(_ view: TabContentView, sourceButton: NSButton) {
+        let currentID = tabStore?.tabs[tabID]?.themeID ?? ThemeRegistry.defaultThemeID
+        let picker = ThemePickerViewController(currentThemeID: currentID) { [weak self] themeID in
+            guard let self else { return }
+            self.tabStore?.updateTheme(tabID: self.tabID, themeID: themeID)
+            self.applyTheme(ThemeRegistry.theme(for: themeID))
+            self.themePopover?.close()
+        }
+        let popover = NSPopover()
+        popover.contentViewController = picker
+        popover.behavior = .transient
+        popover.show(relativeTo: sourceButton.bounds, of: sourceButton, preferredEdge: .minY)
+        themePopover = popover
+    }
+
+    func tabContentViewDidClickMore(_ view: TabContentView, sourceButton: NSButton) {
+        let menu = NSMenu()
+        let reload = menu.addItem(withTitle: "Reload", action: #selector(menuReload), keyEquivalent: "")
+        reload.target = self
+        let dup = menu.addItem(withTitle: "Duplicate Tab", action: #selector(menuDuplicate), keyEquivalent: "")
+        dup.target = self
+        menu.addItem(.separator())
+        let pinTab = menu.addItem(
+            withTitle: (tabStore?.tabs[tabID]?.isPinnedTab ?? false) ? "Unpin from Library" : "Pin in Library",
+            action: #selector(menuTogglePinnedTab),
+            keyEquivalent: ""
+        )
+        pinTab.target = self
+        menu.addItem(.separator())
+        let archive = menu.addItem(withTitle: "Archive Tab", action: #selector(menuArchive), keyEquivalent: "")
+        archive.target = self
+        let trash = menu.addItem(withTitle: "Move to Trash", action: #selector(menuTrash), keyEquivalent: "")
+        trash.target = self
+        menu.popUp(positioning: nil,
+                   at: NSPoint(x: 0, y: sourceButton.bounds.maxY + 4),
+                   in: sourceButton)
+    }
+
+    @objc private func menuReload()           { contentView.webView.reload() }
+    @objc private func menuDuplicate() {
+        guard let dup = tabStore?.duplicateTab(tabID: tabID) else { return }
+        NotificationCenter.default.post(name: .tabDuplicated, object: dup.id)
+    }
+    @objc private func menuTogglePinnedTab() {
+        guard let tab = tabStore?.tabs[tabID] else { return }
+        tabStore?.updatePinnedTab(tabID: tabID, isPinnedTab: !tab.isPinnedTab)
+    }
+    @objc private func menuArchive() {
+        tabStore?.archive(tabID: tabID)
+        window?.close()
+    }
+    @objc private func menuTrash() {
+        tabStore?.trash(tabID: tabID)
+        window?.close()
+    }
+
     // MARK: - WKUIDelegate (new windows)
 
     func webView(_ webView: WKWebView,
@@ -180,6 +240,123 @@ final class TabWindowController: NSWindowController,
             )
         }
         return nil
+    }
+
+    // MARK: - WKNavigationDelegate (snapshot trigger)
+
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        // Debounce snapshot capture so rapid navigations don't churn.
+        snapshotWorkItem?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            Task { @MainActor in self?.captureSnapshot() }
+        }
+        snapshotWorkItem = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5, execute: work)
+    }
+
+    private func captureSnapshot() {
+        let config = WKSnapshotConfiguration()
+        config.afterScreenUpdates = true
+        contentView.webView.takeSnapshot(with: config) { [weak self] image, error in
+            guard let self, let image else {
+                if let error { Log.web.debug("Snapshot failed: \(error.localizedDescription)") }
+                return
+            }
+            Task { @MainActor in
+                guard let png = Self.pngData(from: image, maxBytes: 80 * 1024) else { return }
+                let ref = SHA256.hash(data: png).map { String(format: "%02x", $0) }.joined()
+                do {
+                    try self.tabStore?.persistenceService.saveSnapshot(tabID: self.tabID, pngData: png)
+                    self.tabStore?.updateSnapshotRef(tabID: self.tabID, ref: ref)
+                } catch {
+                    Log.persist.error("Snapshot save failed: \(error.localizedDescription)")
+                }
+            }
+        }
+    }
+
+    /// Downscale + PNG-encode an NSImage, retrying smaller sizes until under
+    /// `maxBytes`. Returns nil if we can't get under the cap.
+    private static func pngData(from image: NSImage, maxBytes: Int) -> Data? {
+        let targetWidths: [CGFloat] = [800, 600, 480, 360, 280]
+        for w in targetWidths {
+            guard let resized = resize(image, toWidth: w),
+                  let tiff = resized.tiffRepresentation,
+                  let rep = NSBitmapImageRep(data: tiff),
+                  let png = rep.representation(using: .png, properties: [:]) else { continue }
+            if png.count <= maxBytes { return png }
+        }
+        return nil
+    }
+
+    private static func resize(_ image: NSImage, toWidth width: CGFloat) -> NSImage? {
+        let aspect = image.size.height / max(image.size.width, 1)
+        let size = NSSize(width: width, height: width * aspect)
+        let new = NSImage(size: size)
+        new.lockFocus()
+        defer { new.unlockFocus() }
+        image.draw(in: NSRect(origin: .zero, size: size),
+                   from: NSRect(origin: .zero, size: image.size),
+                   operation: .copy, fraction: 1.0)
+        return new
+    }
+
+    // MARK: - Favicon capture (script-message handler)
+
+    private func installFaviconScript(on webView: WKWebView) {
+        let source = #"""
+        (function() {
+            function bestIcon() {
+                var links = document.querySelectorAll('link[rel~="icon"]');
+                if (links.length === 0) return null;
+                // Pick the largest sized icon if `sizes` is declared.
+                var best = null, bestSize = 0;
+                for (var i = 0; i < links.length; i++) {
+                    var l = links[i];
+                    var sizesAttr = (l.getAttribute('sizes') || '').toLowerCase();
+                    var sz = 0;
+                    if (sizesAttr === 'any') { sz = 9999; }
+                    else {
+                        var match = sizesAttr.match(/(\d+)x\d+/);
+                        if (match) sz = parseInt(match[1], 10);
+                    }
+                    if (best === null || sz > bestSize) { best = l; bestSize = sz; }
+                }
+                return best ? best.href : null;
+            }
+            function report() {
+                var href = bestIcon();
+                if (href) {
+                    window.webkit.messageHandlers.favicon.postMessage(href);
+                }
+            }
+            if (document.readyState === 'loading') {
+                document.addEventListener('DOMContentLoaded', report);
+            } else {
+                report();
+            }
+        })();
+        """#
+        let script = WKUserScript(source: source,
+                                  injectionTime: .atDocumentEnd,
+                                  forMainFrameOnly: true)
+        webView.configuration.userContentController.addUserScript(script)
+        webView.configuration.userContentController.add(self, name: "favicon")
+    }
+
+    nonisolated func userContentController(_ userContentController: WKUserContentController,
+                                           didReceive message: WKScriptMessage) {
+        // WKScriptMessage props are MainActor-isolated; hop before reading.
+        Task { @MainActor in
+            guard message.name == "favicon",
+                  let href = message.body as? String,
+                  let url = URL(string: href) else { return }
+            // For Phase 2 we just record the href hash as the favicon ref.
+            // FaviconCache (Phase 6) will download + cache PNG bytes.
+            let ref = SHA256.hash(data: Data(url.absoluteString.utf8))
+                .map { String(format: "%02x", $0) }.joined()
+            self.tabStore?.updateFaviconRef(tabID: self.tabID, ref: ref)
+        }
     }
 
     // MARK: - Private
@@ -199,4 +376,5 @@ final class TabWindowController: NSWindowController,
 extension Notification.Name {
     static let tabWindowDidClose      = Notification.Name("tabWindowDidClose")
     static let tabRequestedNewWindow  = Notification.Name("tabRequestedNewWindow")
+    static let tabDuplicated          = Notification.Name("tabDuplicated")
 }
