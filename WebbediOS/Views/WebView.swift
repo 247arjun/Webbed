@@ -249,20 +249,16 @@ struct WebView: UIViewRepresentable {
             })
         }
 
-        // WKUIDelegate — popup intercept consults permission store.
+        // WKUIDelegate — new-window / target=_blank handler.
         func webView(_ webView: WKWebView,
                      createWebViewWith configuration: WKWebViewConfiguration,
                      for navigationAction: WKNavigationAction,
                      windowFeatures: WKWindowFeatures) -> WKWebView? {
-            // Popup gate applies only to programmatic `window.open()`
-            // (navigationType == .other). User-initiated link activations
-            // must always open.
-            if navigationAction.navigationType == .other {
-                let host = navigationAction.sourceFrame.request.url?.host ?? webView.url?.host
-                if AppModel.shared.permissionStore.decision(for: host, kind: .popups) == .deny {
-                    return nil
-                }
-            }
+            // The popup permission is enforced upstream at WebView
+            // construction via `preferences.javaScriptCanOpenWindowsAutomatically`.
+            // Anything that reaches here is either a JS popup with a user
+            // gesture or an explicit user action (long-press → "Open in
+            // New Tab", etc.) and should always be honored.
             if let url = navigationAction.request.url {
                 webView.load(URLRequest(url: url))
             }

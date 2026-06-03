@@ -354,19 +354,15 @@ final class TabWindowController: NSWindowController,
                  createWebViewWith configuration: WKWebViewConfiguration,
                  for navigationAction: WKNavigationAction,
                  windowFeatures: WKWindowFeatures) -> WKWebView? {
-        // Per-origin popup gate — applies only to programmatic
-        // `window.open()` style calls (navigationType == .other). User-
-        // initiated actions (link clicks, ⌘-click, context-menu
-        // "Open Link in New Window") report `.linkActivated` and must
-        // always be honored regardless of the popup setting.
-        if navigationAction.navigationType == .other {
-            let host = navigationAction.sourceFrame.request.url?.host ?? currentHost()
-            if permissionStore?.decision(for: host, kind: .popups) == .deny {
-                Log.web.debug("Pop-up suppressed for \(host ?? "", privacy: .public)")
-                return nil
-            }
-        }
-        // Open in a new tab/window of our own rather than letting WebKit do it.
+        // The per-origin popup permission is enforced upstream at WebView
+        // construction time via `preferences.javaScriptCanOpenWindowsAutomatically`
+        // (see WebViewFactory). When that flag is false, WebKit blocks
+        // unattended `window.open()` calls before they ever reach this
+        // delegate. By the time we get here the action is always either
+        // (a) a JS popup with a user gesture, or (b) an explicit user
+        // command like "Open Link in New Window" / ⌘-shift-click. All of
+        // those should always open — gating again here would (and did)
+        // silently swallow the user's own clicks.
         if let url = navigationAction.request.url {
             NotificationCenter.default.post(
                 name: .tabRequestedNewWindow,
