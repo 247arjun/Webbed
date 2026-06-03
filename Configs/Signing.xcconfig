@@ -1,0 +1,25 @@
+// =============================================================================
+//  Signing.xcconfig
+//
+//  Tracked, safe defaults for code signing. Targets the "Sign to Run Locally"
+//  ad-hoc identity so a fresh clone with no developer team configured still
+//  builds and runs on the local machine.
+//
+//  Personal / team-specific overrides (DEVELOPMENT_TEAM, Apple Development
+//  identity, automatic signing) live in `Signing.local.xcconfig`, which is
+//  optionally included below and is .gitignored. Copy
+//  `Signing.local.xcconfig.example` to `Signing.local.xcconfig` and fill in
+//  your values to override these defaults without ever touching tracked files.
+// =============================================================================
+
+// --- Defaults: ad-hoc, no team, manual style. Works without any setup. ---
+CODE_SIGN_STYLE = Manual
+CODE_SIGN_IDENTITY = -
+DEVELOPMENT_TEAM =
+PROVISIONING_PROFILE_SPECIFIER =
+
+// --- Hardened Runtime: required for Apple notarization. -------------------
+ENABLE_HARDENED_RUNTIME = YES
+
+// --- Optional local override (gitignored). No-op if file is absent. ---
+#include? "Signing.local.xcconfig"

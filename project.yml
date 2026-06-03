@@ -1,0 +1,76 @@
+name: Webbed
+options:
+  bundleIdPrefix: com.arjun
+  deploymentTarget:
+    macOS: "26.0"
+    iOS: "17.0"
+  xcodeVersion: "26.0"
+  generateEmptyDirectories: true
+  groupSortPosition: top
+
+settings:
+  SWIFT_VERSION: "6.0"
+  MACOSX_DEPLOYMENT_TARGET: "26.0"
+  IPHONEOS_DEPLOYMENT_TARGET: "17.0"
+
+packages:
+  WebbedKit:
+    path: WebbedKit
+
+targets:
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # macOS app (AppKit + SwiftUI hybrid). iCloud Drive backed by WebbedKit.
+  # ─────────────────────────────────────────────────────────────────────────
+  Webbed:
+    type: application
+    platform: macOS
+    sources:
+      - path: Webbed
+        excludes:
+          - Resources/Info.plist
+          - Resources/Webbed.entitlements
+    dependencies:
+      - package: WebbedKit
+        product: WebbedKit
+    configFiles:
+      Debug: Configs/Signing.xcconfig
+      Release: Configs/Signing.xcconfig
+    scheme: {}
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.arjun.Webbed
+        PRODUCT_NAME: Webbed
+        INFOPLIST_FILE: Webbed/Resources/Info.plist
+        CODE_SIGN_ENTITLEMENTS: Webbed/Resources/Webbed.entitlements
+        GENERATE_INFOPLIST_FILE: NO
+        COMBINE_HIDPI_IMAGES: YES
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # iOS / iPadOS app (SwiftUI). Shares all data/services with macOS via
+  # WebbedKit and the same iCloud ubiquity container.
+  # ─────────────────────────────────────────────────────────────────────────
+  WebbediOS:
+    type: application
+    platform: iOS
+    sources:
+      - path: WebbediOS
+        excludes:
+          - Resources/Info.plist
+          - Resources/WebbediOS.entitlements
+    dependencies:
+      - package: WebbedKit
+        product: WebbedKit
+    configFiles:
+      Debug: Configs/Signing.xcconfig
+      Release: Configs/Signing.xcconfig
+    scheme: {}
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.arjun.Webbed.ios
+        PRODUCT_NAME: Webbed
+        INFOPLIST_FILE: WebbediOS/Resources/Info.plist
+        CODE_SIGN_ENTITLEMENTS: WebbediOS/Resources/WebbediOS.entitlements
+        GENERATE_INFOPLIST_FILE: NO
+        TARGETED_DEVICE_FAMILY: "1,2"
+        SUPPORTS_MACCATALYST: NO

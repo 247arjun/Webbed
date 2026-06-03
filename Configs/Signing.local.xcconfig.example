@@ -1,0 +1,14 @@
+// =============================================================================
+//  Signing.local.xcconfig.example
+//
+//  Template for the gitignored `Signing.local.xcconfig` file. After cloning,
+//  run:
+//
+//      cp Configs/Signing.local.xcconfig.example Configs/Signing.local.xcconfig
+//
+//  then edit the copy with your real values. The copy is .gitignored.
+// =============================================================================
+
+CODE_SIGN_STYLE = Automatic
+CODE_SIGN_IDENTITY = Apple Development
+DEVELOPMENT_TEAM = REPLACE_WITH_YOUR_10_CHAR_TEAM_ID
