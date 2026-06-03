@@ -8,114 +8,122 @@ import UIKit
 
 // MARK: - WebbedTheme
 
-/// Chrome accent + body palette for a tab window / tab editor.
-public struct WebbedTheme: Equatable, Identifiable, Sendable {
-    public let id: String
-    public let displayName: String
+/// Chrome palette for a single tab window. Two shapes:
+/// * `.system()` — neutral chrome that picks up the OS appearance and adapts
+///   between light and dark mode automatically.
+/// * `.color(...)` — chrome synthesized from a single base color (page
+///   `theme-color` meta or sampled favicon). Text colors are chosen for
+///   WCAG contrast against the base; control tint is a saturation-boosted
+///   variant of the base.
+public struct WebbedTheme: Equatable, Sendable {
     public let bodyBackgroundColor: PlatformColor
     public let headerBackgroundColor: PlatformColor
     public let titleTextColor: PlatformColor
     public let bodyTextColor: PlatformColor
     public let placeholderTextColor: PlatformColor
     public let controlTintColor: PlatformColor
-    /// True ⇒ the chrome uses a system blur material (NSVisualEffectView /
-    /// UIVisualEffectView) rather than a flat fill.
-    public let chromeBlur: Bool
+    public let isSynthesized: Bool
 
     public init(
-        id: String,
-        displayName: String,
         bodyBackgroundColor: PlatformColor,
         headerBackgroundColor: PlatformColor,
         titleTextColor: PlatformColor,
         bodyTextColor: PlatformColor,
         placeholderTextColor: PlatformColor,
         controlTintColor: PlatformColor,
-        chromeBlur: Bool = false
+        isSynthesized: Bool = false
     ) {
-        self.id = id
-        self.displayName = displayName
-        self.bodyBackgroundColor = bodyBackgroundColor
+        self.bodyBackgroundColor   = bodyBackgroundColor
         self.headerBackgroundColor = headerBackgroundColor
-        self.titleTextColor = titleTextColor
-        self.bodyTextColor = bodyTextColor
-        self.placeholderTextColor = placeholderTextColor
-        self.controlTintColor = controlTintColor
-        self.chromeBlur = chromeBlur
+        self.titleTextColor        = titleTextColor
+        self.bodyTextColor         = bodyTextColor
+        self.placeholderTextColor  = placeholderTextColor
+        self.controlTintColor      = controlTintColor
+        self.isSynthesized         = isSynthesized
+    }
+
+    // MARK: - Factories
+
+    /// Neutral chrome that follows the system appearance.
+    public static func system() -> WebbedTheme {
+        #if canImport(AppKit)
+        return WebbedTheme(
+            bodyBackgroundColor:   .windowBackgroundColor,
+            headerBackgroundColor: .underPageBackgroundColor,
+            titleTextColor:        .labelColor,
+            bodyTextColor:         .labelColor,
+            placeholderTextColor:  .placeholderTextColor,
+            controlTintColor:      .controlAccentColor,
+            isSynthesized:         false
+        )
+        #elseif canImport(UIKit)
+        return WebbedTheme(
+            bodyBackgroundColor:   .systemBackground,
+            headerBackgroundColor: .secondarySystemBackground,
+            titleTextColor:        .label,
+            bodyTextColor:         .label,
+            placeholderTextColor:  .placeholderText,
+            controlTintColor:      .tintColor,
+            isSynthesized:         false
+        )
+        #endif
+    }
+
+    /// Synthesize a chrome palette from a single base color (typically the
+    /// page's `theme-color` meta or a sampled favicon hue).
+    public static func color(from base: PlatformColor) -> WebbedTheme {
+        let text          = DominantColor.contrastingText(for: base)
+        let textIsDark    = text == PlatformColor(red: 0, green: 0, blue: 0, alpha: 1)
+        let body          = mix(base, with: textIsDark ? .white : .black, fraction: 0.85)
+        let placeholder   = text.withAlphaComponent(0.55)
+        let controlTint   = textIsDark ? darken(base, by: 0.25) : lighten(base, by: 0.25)
+        return WebbedTheme(
+            bodyBackgroundColor:   body,
+            headerBackgroundColor: base,
+            titleTextColor:        text,
+            bodyTextColor:         textIsDark ? .black : .white,
+            placeholderTextColor:  placeholder,
+            controlTintColor:      controlTint,
+            isSynthesized:         true
+        )
+    }
+
+    // MARK: - Color helpers
+
+    private static func mix(_ a: PlatformColor, with b: PlatformColor, fraction: CGFloat) -> PlatformColor {
+        // fraction = 0 → all a; fraction = 1 → all b.
+        let f = max(0, min(1, fraction))
+        let (ar, ag, ab, aa) = components(a)
+        let (br, bg, bb, ba) = components(b)
+        return PlatformColor(
+            red:   ar * (1 - f) + br * f,
+            green: ag * (1 - f) + bg * f,
+            blue:  ab * (1 - f) + bb * f,
+            alpha: aa * (1 - f) + ba * f
+        )
+    }
+
+    private static func lighten(_ color: PlatformColor, by amount: CGFloat) -> PlatformColor {
+        mix(color, with: .white, fraction: amount)
+    }
+
+    private static func darken(_ color: PlatformColor, by amount: CGFloat) -> PlatformColor {
+        mix(color, with: .black, fraction: amount)
+    }
+
+    private static func components(_ c: PlatformColor) -> (CGFloat, CGFloat, CGFloat, CGFloat) {
+        #if canImport(AppKit)
+        let converted = c.usingColorSpace(.sRGB) ?? c
+        return (converted.redComponent, converted.greenComponent, converted.blueComponent, converted.alphaComponent)
+        #elseif canImport(UIKit)
+        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+        if c.getRed(&r, green: &g, blue: &b, alpha: &a) { return (r, g, b, a) }
+        return (0, 0, 0, 1)
+        #endif
     }
 }
 
-// MARK: - ThemeRegistry
-
-public enum ThemeRegistry {
-
-    public static let defaultThemeID = "graphite"
-
-    public static let allThemes: [WebbedTheme] = [graphite, aqua, pumpkin, forest, rose]
-
-    public static func theme(for id: String) -> WebbedTheme {
-        allThemes.first(where: { $0.id == id }) ?? graphite
-    }
-
-    // MARK: Built-in themes
-
-    public static let graphite = WebbedTheme(
-        id: "graphite",
-        displayName: "Graphite",
-        bodyBackgroundColor:   .rgb(0.97, 0.97, 0.98),
-        headerBackgroundColor: .rgb(0.92, 0.92, 0.94),
-        titleTextColor:        .rgb(0.10, 0.10, 0.12),
-        bodyTextColor:         .rgb(0.13, 0.13, 0.13),
-        placeholderTextColor:  .rgb(0.45, 0.45, 0.50),
-        controlTintColor:      .rgb(0.20, 0.20, 0.24),
-        chromeBlur:            true
-    )
-
-    public static let aqua = WebbedTheme(
-        id: "aqua",
-        displayName: "Aqua",
-        bodyBackgroundColor:   .rgb(0.93, 0.97, 1.00),
-        headerBackgroundColor: .rgb(0.52, 0.78, 0.96),
-        titleTextColor:        .rgb(0.05, 0.18, 0.32),
-        bodyTextColor:         .rgb(0.10, 0.14, 0.20),
-        placeholderTextColor:  .rgb(0.30, 0.45, 0.60),
-        controlTintColor:      .rgb(0.08, 0.30, 0.55),
-        chromeBlur:            false
-    )
-
-    public static let pumpkin = WebbedTheme(
-        id: "pumpkin",
-        displayName: "Pumpkin",
-        bodyBackgroundColor:   .rgb(1.00, 0.95, 0.88),
-        headerBackgroundColor: .rgb(0.98, 0.62, 0.25),
-        titleTextColor:        .rgb(0.35, 0.15, 0.04),
-        bodyTextColor:         .rgb(0.20, 0.12, 0.06),
-        placeholderTextColor:  .rgb(0.55, 0.35, 0.18),
-        controlTintColor:      .rgb(0.45, 0.20, 0.05),
-        chromeBlur:            false
-    )
-
-    public static let forest = WebbedTheme(
-        id: "forest",
-        displayName: "Forest",
-        bodyBackgroundColor:   .rgb(0.93, 0.97, 0.93),
-        headerBackgroundColor: .rgb(0.40, 0.62, 0.42),
-        titleTextColor:        .rgb(0.07, 0.20, 0.08),
-        bodyTextColor:         .rgb(0.10, 0.18, 0.10),
-        placeholderTextColor:  .rgb(0.32, 0.48, 0.32),
-        controlTintColor:      .rgb(0.12, 0.32, 0.14),
-        chromeBlur:            false
-    )
-
-    public static let rose = WebbedTheme(
-        id: "rose",
-        displayName: "Rose",
-        bodyBackgroundColor:   .rgb(1.00, 0.94, 0.95),
-        headerBackgroundColor: .rgb(0.96, 0.62, 0.70),
-        titleTextColor:        .rgb(0.35, 0.08, 0.15),
-        bodyTextColor:         .rgb(0.18, 0.10, 0.12),
-        placeholderTextColor:  .rgb(0.60, 0.35, 0.42),
-        controlTintColor:      .rgb(0.45, 0.12, 0.22),
-        chromeBlur:            false
-    )
+private extension PlatformColor {
+    static var white: PlatformColor { PlatformColor(red: 1, green: 1, blue: 1, alpha: 1) }
+    static var black: PlatformColor { PlatformColor(red: 0, green: 0, blue: 0, alpha: 1) }
 }

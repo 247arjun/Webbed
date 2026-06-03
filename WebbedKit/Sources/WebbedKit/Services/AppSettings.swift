@@ -35,7 +35,7 @@ public final class AppSettings {
     private enum Key {
         static let saveLocationBookmark = "saveLocationBookmark"
         static let saveLocationPath     = "saveLocationPath"
-        static let defaultThemeID       = "defaultThemeID"
+        static let chromeStyle          = "chromeStyle"
         static let launchBehavior       = "launchBehavior"
         static let searchProvider       = "searchProvider"
         static let homepageURL          = "homepageURL"
@@ -132,11 +132,17 @@ public final class AppSettings {
         StorageLocationResolver.defaultLocalDirectory()
     }
 
-    // MARK: - Theme / launch / search
+    // MARK: - Chrome style
 
-    public var defaultThemeID: String {
-        get { defaults.string(forKey: Key.defaultThemeID) ?? ThemeRegistry.defaultThemeID }
-        set { defaults.set(newValue, forKey: Key.defaultThemeID) }
+    /// Global chrome style. Per-tab manual overrides are gone — chrome
+    /// either tints with the page color or follows the system appearance.
+    public var chromeStyle: ChromeStyle {
+        get {
+            guard let raw = defaults.string(forKey: Key.chromeStyle),
+                  let style = ChromeStyle(rawValue: raw) else { return .color }
+            return style
+        }
+        set { defaults.set(newValue.rawValue, forKey: Key.chromeStyle) }
     }
 
     public var launchBehavior: LaunchBehavior {

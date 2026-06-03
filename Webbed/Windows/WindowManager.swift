@@ -37,6 +37,13 @@ final class WindowManager {
             name: .tabDuplicated,
             object: nil
         )
+
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleChromeStyleChanged),
+            name: .webbedChromeStyleChanged,
+            object: nil
+        )
     }
 
     deinit {
@@ -59,12 +66,11 @@ final class WindowManager {
             existing.window?.makeKeyAndOrderFront(nil)
             return
         }
-        let theme = ThemeRegistry.theme(for: tab.themeID)
         let frame = validatedFrame(tab.frame)
         let ctrl = TabWindowController(
             tabID: tabID, tabStore: store,
             permissionStore: permissionStore,
-            frame: frame.cgRect, theme: theme
+            frame: frame.cgRect
         )
         ctrl.loadContent(from: tab)
         controllers[tabID] = ctrl
@@ -79,11 +85,10 @@ final class WindowManager {
         tab.frame = PersistedRect(from: frame)
         store.updateFrame(tabID: tabID, frame: tab.frame)
 
-        let theme = ThemeRegistry.theme(for: tab.themeID)
         let ctrl = TabWindowController(
             tabID: tabID, tabStore: store,
             permissionStore: permissionStore,
-            frame: frame, theme: theme
+            frame: frame
         )
         ctrl.loadContent(from: tab)
         controllers[tabID] = ctrl
@@ -131,6 +136,12 @@ final class WindowManager {
     @objc private func handleTabDuplicated(_ note: Notification) {
         guard let tabID = note.object as? UUID else { return }
         openNewTabWindow(tabID: tabID)
+    }
+
+    @objc private func handleChromeStyleChanged() {
+        for (_, ctrl) in controllers {
+            ctrl.applyCurrentTheme()
+        }
     }
 
     private func nextCascadedFrame() -> NSRect {

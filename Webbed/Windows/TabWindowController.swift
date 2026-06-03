@@ -21,7 +21,6 @@ final class TabWindowController: NSWindowController,
     private(set) var contentView: TabContentView
     private var kvoObservers: [NSKeyValueObservation] = []
     private var snapshotWorkItem: DispatchWorkItem?
-    private var themePopover: NSPopover?
     private var liveModePopover: NSPopover?
     private var permissionsPopover: NSPopover?
     private var liveRefreshTimer: Timer?
@@ -30,7 +29,7 @@ final class TabWindowController: NSWindowController,
 
     init(tabID: UUID, tabStore: TabStore,
          permissionStore: PermissionStore?,
-         frame: NSRect, theme: WebbedTheme) {
+         frame: NSRect) {
         self.tabID = tabID
         self.tabStore = tabStore
         self.permissionStore = permissionStore
@@ -41,7 +40,17 @@ final class TabWindowController: NSWindowController,
         let popups   = permissionStore?.decision(for: initialHost, kind: .popups)   == .allow
 
         let webView = WebViewFactory.make(autoplayAllowed: autoplay, popupsAllowed: popups)
-        contentView = TabContentView(tabID: tabID, theme: theme, webView: webView)
+
+        // Initial chrome: derive from persisted dominantColor (if any) or
+        // fall through to system chrome.
+        let initialTheme: WebbedTheme = {
+            guard AppSettings.shared.chromeStyle == .color,
+                  let tab = tabStore.tabs[tabID], tab.autoTintFromSite,
+                  let data = tab.dominantColor,
+                  let color = DominantColor.color(from: data) else { return .system() }
+            return .color(from: color)
+        }()
+        contentView = TabContentView(tabID: tabID, theme: initialTheme, webView: webView)
 
         let window = TabWindow(contentRect: frame)
         window.contentView = contentView
@@ -55,7 +64,7 @@ final class TabWindowController: NSWindowController,
         webView.navigationDelegate = self
         webView.uiDelegate = self
 
-        installFaviconScript(on: webView)
+        installPageScripts(on: webView)
         installKVO(on: webView)
         contentView.applyResponsiveLayout(for: frame.size)
         Log.window.debug("Created window controller for tab \(tabID, privacy: .public)")
@@ -76,6 +85,9 @@ final class TabWindowController: NSWindowController,
         contentView.updateLiveModeGlyph(tab.liveModeInterval)
         applyPinLevel(tab.isPinned)
         scheduleLiveRefresh(interval: tab.liveModeInterval)
+        // Apply persisted dominant color (if any) immediately so the window
+        // opens with the right tint even before the page loads.
+        applyCurrentTheme()
         if let url = tab.url {
             contentView.webView.load(URLRequest(url: url))
         } else if let home = AppSettings.shared.homepageURL {
@@ -85,7 +97,6 @@ final class TabWindowController: NSWindowController,
 
     func applyTheme(_ theme: WebbedTheme) {
         contentView.applyTheme(theme)
-        // Reapply live-mode tint (the theme pass resets contentTintColor).
         if let tab = tabStore?.tabs[tabID] {
             contentView.updateLiveModeGlyph(tab.liveModeInterval)
         }
@@ -210,21 +221,6 @@ final class TabWindowController: NSWindowController,
         InstalledBrowsers.open(url, with: AppSettings.shared.externalBrowserBundleID)
     }
 
-    func tabContentViewDidClickTheme(_ view: TabContentView, sourceButton: NSButton) {
-        let currentID = tabStore?.tabs[tabID]?.themeID ?? ThemeRegistry.defaultThemeID
-        let picker = ThemePickerViewController(currentThemeID: currentID) { [weak self] themeID in
-            guard let self else { return }
-            self.tabStore?.updateTheme(tabID: self.tabID, themeID: themeID)
-            self.applyTheme(ThemeRegistry.theme(for: themeID))
-            self.themePopover?.close()
-        }
-        let popover = NSPopover()
-        popover.contentViewController = picker
-        popover.behavior = .transient
-        popover.show(relativeTo: sourceButton.bounds, of: sourceButton, preferredEdge: .minY)
-        themePopover = popover
-    }
-
     func tabContentViewDidClickMore(_ view: TabContentView, sourceButton: NSButton) {
         let menu = NSMenu()
         let reload = menu.addItem(withTitle: "Reload", action: #selector(menuReload), keyEquivalent: "")
@@ -268,6 +264,14 @@ final class TabWindowController: NSWindowController,
             keyEquivalent: ""
         )
         pinTab.target = self
+        let autoTint = menu.addItem(
+            withTitle: "Match Site Color",
+            action: #selector(menuToggleAutoTint),
+            keyEquivalent: ""
+        )
+        autoTint.target = self
+        autoTint.state = (tabStore?.tabs[tabID]?.autoTintFromSite ?? true) ? .on : .off
+        autoTint.isEnabled = AppSettings.shared.chromeStyle == .color
         menu.addItem(.separator())
         let archive = menu.addItem(withTitle: "Archive Tab", action: #selector(menuArchive), keyEquivalent: "")
         archive.target = self
@@ -286,6 +290,19 @@ final class TabWindowController: NSWindowController,
     @objc private func menuTogglePinnedTab() {
         guard let tab = tabStore?.tabs[tabID] else { return }
         tabStore?.updatePinnedTab(tabID: tabID, isPinnedTab: !tab.isPinnedTab)
+    }
+    @objc private func menuToggleAutoTint() {
+        guard let tab = tabStore?.tabs[tabID] else { return }
+        tabStore?.updateAutoTintFromSite(tabID: tabID, enabled: !tab.autoTintFromSite)
+        // Re-pick the theme. If turning back on and we already have a
+        // dominantColor cached, it kicks in immediately.
+        if tab.autoTintFromSite == false {
+            // We just enabled auto-tint.
+            applyCurrentTheme()
+        } else {
+            // We just disabled it — fall back to system chrome.
+            applyCurrentTheme()
+        }
     }
     @objc private func menuArchive() {
         tabStore?.archive(tabID: tabID)
@@ -427,6 +444,12 @@ final class TabWindowController: NSWindowController,
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.5, execute: work)
     }
 
+    func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
+        // Fresh navigation — forget any prior page's theme-color so a
+        // late favicon callback can supply a color for the new origin.
+        resetThemingForNavigation()
+    }
+
     private func captureSnapshot() {
         let config = WKSnapshotConfiguration()
         config.afterScreenUpdates = true
@@ -474,62 +497,97 @@ final class TabWindowController: NSWindowController,
         return new
     }
 
-    // MARK: - Favicon capture (script-message handler)
+    // MARK: - Page scripts (favicon + theme-color)
 
-    private func installFaviconScript(on webView: WKWebView) {
-        let source = #"""
-        (function() {
-            function bestIcon() {
-                var links = document.querySelectorAll('link[rel~="icon"]');
-                if (links.length === 0) return null;
-                // Pick the largest sized icon if `sizes` is declared.
-                var best = null, bestSize = 0;
-                for (var i = 0; i < links.length; i++) {
-                    var l = links[i];
-                    var sizesAttr = (l.getAttribute('sizes') || '').toLowerCase();
-                    var sz = 0;
-                    if (sizesAttr === 'any') { sz = 9999; }
-                    else {
-                        var match = sizesAttr.match(/(\d+)x\d+/);
-                        if (match) sz = parseInt(match[1], 10);
-                    }
-                    if (best === null || sz > bestSize) { best = l; bestSize = sz; }
-                }
-                return best ? best.href : null;
-            }
-            function report() {
-                var href = bestIcon();
-                if (href) {
-                    window.webkit.messageHandlers.favicon.postMessage(href);
-                }
-            }
-            if (document.readyState === 'loading') {
-                document.addEventListener('DOMContentLoaded', report);
-            } else {
-                report();
-            }
-        })();
-        """#
-        let script = WKUserScript(source: source,
-                                  injectionTime: .atDocumentEnd,
-                                  forMainFrameOnly: true)
-        webView.configuration.userContentController.addUserScript(script)
-        webView.configuration.userContentController.add(self, name: "favicon")
+    private func installPageScripts(on webView: WKWebView) {
+        let ucc = webView.configuration.userContentController
+        ucc.addUserScript(WebViewFactory.faviconUserScript)
+        ucc.addUserScript(WebViewFactory.themeColorUserScript)
+        ucc.add(self, name: "favicon")
+        ucc.add(self, name: "themeColor")
     }
 
     nonisolated func userContentController(_ userContentController: WKUserContentController,
                                            didReceive message: WKScriptMessage) {
-        // WKScriptMessage props are MainActor-isolated; hop before reading.
         Task { @MainActor in
-            guard message.name == "favicon",
-                  let href = message.body as? String,
-                  let url = URL(string: href) else { return }
-            // Download + cache the actual bytes, then record the cache ref
-            // on the TabRecord so list rows can render the favicon.
-            if let ref = await FaviconCache.shared.fetch(iconURL: url) {
-                self.tabStore?.updateFaviconRef(tabID: self.tabID, ref: ref)
+            switch message.name {
+            case "favicon":
+                guard let href = message.body as? String,
+                      let url = URL(string: href) else { return }
+                if let ref = await FaviconCache.shared.fetch(iconURL: url) {
+                    self.tabStore?.updateFaviconRef(tabID: self.tabID, ref: ref)
+                    self.deriveDominantColorFromFaviconIfNeeded(ref: ref)
+                }
+
+            case "themeColor":
+                let raw = (message.body as? String) ?? ""
+                self.applyPageThemeColor(raw)
+
+            default:
+                break
             }
         }
+    }
+
+    // MARK: - Theming pipeline
+
+    /// True once the page has explicitly reported a `theme-color`. Prevents
+    /// the favicon-derived color from overriding it.
+    private var pageThemeColorReported = false
+
+    /// Reset between navigations so a new origin gets a fresh sampling pass.
+    private func resetThemingForNavigation() {
+        pageThemeColorReported = false
+    }
+
+    private func applyPageThemeColor(_ raw: String) {
+        guard AppSettings.shared.chromeStyle == .color,
+              tabStore?.tabs[tabID]?.autoTintFromSite ?? true else { return }
+
+        if let color = DominantColor.parseCSS(raw), !raw.isEmpty {
+            pageThemeColorReported = true
+            updateDominantColor(color)
+        } else if raw.isEmpty {
+            // Page cleared the meta — fall back to favicon sample if we have one.
+            pageThemeColorReported = false
+            if let ref = tabStore?.tabs[tabID]?.faviconRef {
+                deriveDominantColorFromFaviconIfNeeded(ref: ref)
+            }
+        }
+    }
+
+    private func deriveDominantColorFromFaviconIfNeeded(ref: String) {
+        guard AppSettings.shared.chromeStyle == .color,
+              tabStore?.tabs[tabID]?.autoTintFromSite ?? true,
+              !pageThemeColorReported else { return }
+        guard let image = FaviconCache.shared.image(forRef: ref),
+              let color = DominantColor.sample(from: image) else { return }
+        updateDominantColor(color)
+    }
+
+    private func updateDominantColor(_ color: PlatformColor) {
+        let data = DominantColor.data(from: color)
+        tabStore?.updateDominantColor(tabID: tabID, rgba: data)
+        applyCurrentTheme()
+    }
+
+    /// Apply the WebbedTheme implied by the current AppSettings + TabRecord
+    /// state. Call after anything that could change the resolved theme.
+    func applyCurrentTheme() {
+        let theme = resolvedTheme()
+        contentView.applyTheme(theme)
+        if let tab = tabStore?.tabs[tabID] {
+            contentView.updateLiveModeGlyph(tab.liveModeInterval)
+        }
+    }
+
+    private func resolvedTheme() -> WebbedTheme {
+        let chromeStyle = AppSettings.shared.chromeStyle
+        guard chromeStyle == .color else { return .system() }
+        guard let tab = tabStore?.tabs[tabID], tab.autoTintFromSite,
+              let data = tab.dominantColor,
+              let color = DominantColor.color(from: data) else { return .system() }
+        return .color(from: color)
     }
 
     // MARK: - Private

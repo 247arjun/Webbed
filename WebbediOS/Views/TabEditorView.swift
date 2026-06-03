@@ -23,7 +23,7 @@ struct TabEditorView: View {
     @State private var liveRefreshTimer: Timer?
     @State private var liveInterval: LiveModeInterval = .off
     @State private var showSitePermissions = false
-    @State private var themeID: String = ThemeRegistry.defaultThemeID
+    @State private var autoTintFromSite: Bool = true
 
     var body: some View {
         VStack(spacing: 0) {
@@ -31,6 +31,7 @@ struct TabEditorView: View {
                 ProgressView(value: progress)
                     .progressViewStyle(.linear)
                     .frame(height: 2)
+                    .tint(Color(uiColor: chromeTheme.controlTintColor))
             }
             WebView(
                 tabID: tabID,
@@ -47,13 +48,23 @@ struct TabEditorView: View {
         }
         .navigationBarTitleDisplayMode(.inline)
         .toolbar { toolbarContent }
+        .tint(Color(uiColor: chromeTheme.controlTintColor))
+        .toolbarBackground(
+            chromeTheme.isSynthesized
+                ? Color(uiColor: chromeTheme.headerBackgroundColor)
+                : Color.clear,
+            for: .navigationBar
+        )
+        .toolbarBackground(chromeTheme.isSynthesized ? .visible : .automatic,
+                           for: .navigationBar)
+        .toolbarColorScheme(toolbarScheme, for: .navigationBar)
         .onAppear {
             let tab = currentTab()
             self.url = tab?.url
             self.title = tab?.displayTitle ?? ""
             self.address = tab?.displayURLString ?? ""
             self.liveInterval = tab?.liveModeInterval ?? .off
-            self.themeID = tab?.themeID ?? AppSettings.shared.defaultThemeID
+            self.autoTintFromSite = tab?.autoTintFromSite ?? true
             scheduleLiveRefresh(interval: liveInterval)
         }
         .onDisappear {
@@ -133,22 +144,13 @@ struct TabEditorView: View {
                     Label("Live Mode…" + (liveInterval == .off ? "" : " (\(liveInterval.shortLabel))"),
                           systemImage: liveInterval == .off ? "bolt.circle" : "bolt.circle.fill")
                 }
-                Menu {
-                    ForEach(ThemeRegistry.allThemes) { theme in
-                        Button {
-                            setTheme(theme.id)
-                        } label: {
-                            if theme.id == themeID {
-                                Label(theme.displayName, systemImage: "checkmark")
-                            } else {
-                                Text(theme.displayName)
-                            }
-                        }
-                    }
+                Button {
+                    toggleAutoTint()
                 } label: {
-                    Label("Theme — \(ThemeRegistry.theme(for: themeID).displayName)",
-                          systemImage: "paintpalette")
+                    Label(autoTintFromSite ? "Match Site Color (On)" : "Match Site Color (Off)",
+                          systemImage: autoTintFromSite ? "paintpalette.fill" : "paintpalette")
                 }
+                .disabled(AppSettings.shared.chromeStyle != .color)
                 Divider()
                 if bucket == .active {
                     Button { tabStore.archive(tabID: tabID) } label: {
@@ -202,13 +204,40 @@ struct TabEditorView: View {
         }
         .padding(.horizontal, 24)
         .padding(.vertical, 8)
-        .background(.bar)
+        .background(
+            chromeTheme.isSynthesized
+                ? Color(uiColor: chromeTheme.headerBackgroundColor)
+                : Color(uiColor: .systemBackground).opacity(0.95)
+        )
+        .foregroundStyle(
+            chromeTheme.isSynthesized
+                ? Color(uiColor: chromeTheme.titleTextColor)
+                : Color.primary
+        )
     }
 
     // MARK: - Helpers
 
     private func currentTab() -> TabRecord? {
         tabStore.tabs[tabID] ?? tabStore.archivedTabs[tabID] ?? tabStore.trashedTabs[tabID]
+    }
+
+    /// Resolved chrome theme — System or synthesized from the current tab's
+    /// dominantColor depending on AppSettings.chromeStyle + per-tab opt-out.
+    private var chromeTheme: WebbedTheme {
+        guard AppSettings.shared.chromeStyle == .color else { return .system() }
+        guard let tab = currentTab(), tab.autoTintFromSite,
+              let data = tab.dominantColor,
+              let color = DominantColor.color(from: data) else { return .system() }
+        return .color(from: color)
+    }
+
+    /// When the chrome is tinted with a dark color, ask the toolbar to use
+    /// dark color scheme so the system glyphs flip white.
+    private var toolbarScheme: ColorScheme? {
+        guard chromeTheme.isSynthesized else { return nil }
+        let isDarkText = chromeTheme.titleTextColor == UIColor.black
+        return isDarkText ? .light : .dark
     }
 
     private func submitAddress() {
@@ -228,9 +257,9 @@ struct TabEditorView: View {
         scheduleLiveRefresh(interval: interval)
     }
 
-    private func setTheme(_ newThemeID: String) {
-        themeID = newThemeID
-        tabStore.updateTheme(tabID: tabID, themeID: newThemeID)
+    private func toggleAutoTint() {
+        autoTintFromSite.toggle()
+        tabStore.updateAutoTintFromSite(tabID: tabID, enabled: autoTintFromSite)
     }
 
     private func scheduleLiveRefresh(interval: LiveModeInterval) {

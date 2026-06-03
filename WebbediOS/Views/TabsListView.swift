@@ -139,7 +139,7 @@ struct TabRowView: View {
                         .scaledToFit()
                 } else {
                     Image(systemName: tab.isPinnedTab ? "pin.fill" : "globe")
-                        .foregroundStyle(ThemeRegistry.theme(for: tab.themeID).controlTintColor.swiftUIColor)
+                        .foregroundStyle(.secondary)
                 }
             }
             .frame(width: 22, height: 22)

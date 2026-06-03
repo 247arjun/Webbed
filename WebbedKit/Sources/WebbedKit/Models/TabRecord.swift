@@ -13,7 +13,6 @@ public struct TabRecord: Codable, Identifiable, Equatable, Sendable {
     public var faviconRef: String?
     public var snapshotRef: String?
     public var scrollY: Double
-    public var themeID: String
     /// Tear-out window floats above other windows (macOS).
     public var isPinned: Bool
     /// Appears in the Pinned section of the library on all platforms.
@@ -34,6 +33,16 @@ public struct TabRecord: Codable, Identifiable, Equatable, Sendable {
     /// Auto-refresh cadence for this window. `.off` = disabled.
     public var liveModeInterval: LiveModeInterval
 
+    /// Sampled / page-declared dominant color encoded as 4 bytes (RGBA).
+    /// nil = use the theme registry color for `themeID`. Synced through
+    /// iCloud so a tab opens with the same tint on every device.
+    public var dominantColor: Data?
+
+    /// When true, Webbed automatically tints the chrome based on the site's
+    /// `theme-color` meta or sampled favicon. When false, the user has
+    /// manually picked a theme and that choice wins.
+    public var autoTintFromSite: Bool
+
     public init(
         id: UUID = UUID(),
         url: URL? = nil,
@@ -41,7 +50,6 @@ public struct TabRecord: Codable, Identifiable, Equatable, Sendable {
         faviconRef: String? = nil,
         snapshotRef: String? = nil,
         scrollY: Double = 0,
-        themeID: String = "graphite",
         isPinned: Bool = false,
         isPinnedTab: Bool = false,
         groupID: UUID? = nil,
@@ -54,7 +62,9 @@ public struct TabRecord: Codable, Identifiable, Equatable, Sendable {
         manualSortOrder: Int = 0,
         isInTrash: Bool = false,
         trashedAt: Date? = nil,
-        liveModeInterval: LiveModeInterval = .off
+        liveModeInterval: LiveModeInterval = .off,
+        dominantColor: Data? = nil,
+        autoTintFromSite: Bool = true
     ) {
         self.id = id
         self.url = url
@@ -62,7 +72,6 @@ public struct TabRecord: Codable, Identifiable, Equatable, Sendable {
         self.faviconRef = faviconRef
         self.snapshotRef = snapshotRef
         self.scrollY = scrollY
-        self.themeID = themeID
         self.isPinned = isPinned
         self.isPinnedTab = isPinnedTab
         self.groupID = groupID
@@ -76,6 +85,8 @@ public struct TabRecord: Codable, Identifiable, Equatable, Sendable {
         self.isInTrash = isInTrash
         self.trashedAt = trashedAt
         self.liveModeInterval = liveModeInterval
+        self.dominantColor = dominantColor
+        self.autoTintFromSite = autoTintFromSite
     }
 
     // Backward-compatible decoding: any field added later defaults safely.
@@ -87,7 +98,6 @@ public struct TabRecord: Codable, Identifiable, Equatable, Sendable {
         self.faviconRef      = try c.decodeIfPresent(String.self, forKey: .faviconRef)
         self.snapshotRef     = try c.decodeIfPresent(String.self, forKey: .snapshotRef)
         self.scrollY         = try c.decodeIfPresent(Double.self, forKey: .scrollY) ?? 0
-        self.themeID         = try c.decodeIfPresent(String.self, forKey: .themeID) ?? "graphite"
         self.isPinned        = try c.decodeIfPresent(Bool.self,   forKey: .isPinned) ?? false
         self.isPinnedTab     = try c.decodeIfPresent(Bool.self,   forKey: .isPinnedTab) ?? false
         self.groupID         = try c.decodeIfPresent(UUID.self,   forKey: .groupID)
@@ -101,6 +111,8 @@ public struct TabRecord: Codable, Identifiable, Equatable, Sendable {
         self.isInTrash       = try c.decodeIfPresent(Bool.self,   forKey: .isInTrash) ?? false
         self.trashedAt       = try c.decodeIfPresent(Date.self,   forKey: .trashedAt)
         self.liveModeInterval = try c.decodeIfPresent(LiveModeInterval.self, forKey: .liveModeInterval) ?? .off
+        self.dominantColor   = try c.decodeIfPresent(Data.self,   forKey: .dominantColor)
+        self.autoTintFromSite = try c.decodeIfPresent(Bool.self,  forKey: .autoTintFromSite) ?? true
     }
 
     /// Best-effort display title — falls back to host, then to "New Tab".

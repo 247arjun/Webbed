@@ -14,7 +14,6 @@ protocol TabContentViewDelegate: AnyObject {
     func tabContentViewDidClickClose(_ view: TabContentView)
     func tabContentViewDidClickPin(_ view: TabContentView)
     func tabContentViewDidClickLiveMode(_ view: TabContentView, sourceButton: NSButton)
-    func tabContentViewDidClickTheme(_ view: TabContentView, sourceButton: NSButton)
     func tabContentViewDidClickOpenExternal(_ view: TabContentView)
     func tabContentViewDidClickMore(_ view: TabContentView, sourceButton: NSButton)
 }
@@ -23,7 +22,6 @@ protocol TabContentViewDelegate: AnyObject {
 extension TabContentViewDelegate {
     func tabContentViewDidClickPin(_ view: TabContentView) {}
     func tabContentViewDidClickLiveMode(_ view: TabContentView, sourceButton: NSButton) {}
-    func tabContentViewDidClickTheme(_ view: TabContentView, sourceButton: NSButton) {}
     func tabContentViewDidClickOpenExternal(_ view: TabContentView) {}
     func tabContentViewDidClickMore(_ view: TabContentView, sourceButton: NSButton) {}
 }
@@ -76,7 +74,6 @@ final class TabContentView: NSView {
     let addressField:  NSTextField
     let pinButton:     NSButton
     let liveButton:    NSButton
-    let themeButton:   NSButton
     let openExternalButton: NSButton
     let moreButton:    NSButton
     let closeButton:   NSButton
@@ -102,7 +99,6 @@ final class TabContentView: NSView {
         reloadButton  = Self.headerButton(symbol: "arrow.clockwise", label: "Reload")
         pinButton     = Self.headerButton(symbol: "pin",            label: "Pin tab on top")
         liveButton    = Self.headerButton(symbol: "bolt.circle",     label: "Live Mode")
-        themeButton   = Self.headerButton(symbol: "paintpalette",   label: "Theme")
         openExternalButton = Self.headerButton(symbol: "safari", label: "Open in Browser")
         moreButton    = Self.headerButton(symbol: "ellipsis",       label: "More")
         closeButton   = Self.headerButton(symbol: "xmark",          label: "Close tab")
@@ -155,7 +151,7 @@ final class TabContentView: NSView {
             )
         }
 
-        for b in [backButton, forwardButton, reloadButton, pinButton, liveButton, themeButton, openExternalButton, moreButton, closeButton] {
+        for b in [backButton, forwardButton, reloadButton, pinButton, liveButton, openExternalButton, moreButton, closeButton] {
             b.contentTintColor = newTheme.controlTintColor
         }
 
@@ -242,7 +238,7 @@ final class TabContentView: NSView {
         addressField.translatesAutoresizingMaskIntoConstraints = false
         headerView.addSubview(addressField)
 
-        trailingButtonsStack = NSStackView(views: [pinButton, liveButton, themeButton, openExternalButton, moreButton, closeButton])
+        trailingButtonsStack = NSStackView(views: [pinButton, liveButton, openExternalButton, moreButton, closeButton])
         trailingButtonsStack.orientation = .horizontal
         trailingButtonsStack.spacing = 6
         trailingButtonsStack.alignment = .centerY
@@ -304,7 +300,6 @@ final class TabContentView: NSView {
         reloadButton.target  = self; reloadButton.action  = #selector(onReloadOrStop)
         pinButton.target     = self; pinButton.action     = #selector(onPin)
         liveButton.target    = self; liveButton.action    = #selector(onLive)
-        themeButton.target   = self; themeButton.action   = #selector(onTheme)
         openExternalButton.target = self; openExternalButton.action = #selector(onOpenExternal)
         moreButton.target    = self; moreButton.action    = #selector(onMore)
         closeButton.target   = self; closeButton.action   = #selector(onClose)
@@ -324,11 +319,10 @@ final class TabContentView: NSView {
         forwardButton.isHidden = !showNavCluster
         reloadButton.isHidden  = !showNavCluster
 
-        // In tiny mode, also hide pin + theme to give the URL field room.
+        // In tiny mode, also hide pin to give the URL field room.
         let tiny = widthMode == .tiny
         pinButton.isHidden          = tiny
         liveButton.isHidden         = tiny
-        themeButton.isHidden        = tiny
         openExternalButton.isHidden = tiny
 
         // Header band height.
@@ -356,7 +350,6 @@ final class TabContentView: NSView {
     }
     @objc private func onPin()            { delegate?.tabContentViewDidClickPin(self) }
     @objc private func onLive()           { delegate?.tabContentViewDidClickLiveMode(self, sourceButton: liveButton) }
-    @objc private func onTheme()          { delegate?.tabContentViewDidClickTheme(self, sourceButton: themeButton) }
     @objc private func onOpenExternal()   { delegate?.tabContentViewDidClickOpenExternal(self) }
     @objc private func onMore()           { delegate?.tabContentViewDidClickMore(self, sourceButton: moreButton) }
     @objc private func onClose()          { delegate?.tabContentViewDidClickClose(self) }

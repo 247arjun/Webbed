@@ -104,16 +104,27 @@ struct MacGeneralSettings: View {
 // MARK: - Appearance
 
 struct MacAppearanceSettings: View {
-    @State private var defaultTheme: String = AppSettings.shared.defaultThemeID
+    @State private var chromeStyle: ChromeStyle = AppSettings.shared.chromeStyle
     @State private var mobileBreakpoint: Double = AppSettings.shared.mobileBreakpoint
 
     var body: some View {
         Form {
-            Section("Theme") {
-                Picker("Default Theme", selection: $defaultTheme) {
-                    ForEach(ThemeRegistry.allThemes) { t in Text(t.displayName).tag(t.id) }
+            Section {
+                Picker("Window Chrome", selection: $chromeStyle) {
+                    ForEach(ChromeStyle.allCases) { style in
+                        Text(style.displayName).tag(style)
+                    }
                 }
-                .onChange(of: defaultTheme) { _, new in AppSettings.shared.defaultThemeID = new }
+                .pickerStyle(.segmented)
+                .onChange(of: chromeStyle) { _, new in
+                    AppSettings.shared.chromeStyle = new
+                    NotificationCenter.default.post(name: .webbedChromeStyleChanged, object: nil)
+                }
+                Text(chromeStyle.blurb)
+                    .font(.caption).foregroundStyle(.secondary)
+            } header: { Text("Theme") } footer: {
+                Text("**Color** uses the site's declared `theme-color` meta tag, or falls back to a dominant color sampled from the favicon. **System** uses neutral chrome that follows your OS appearance.")
+                    .font(.caption)
             }
 
             Section("Responsive Chrome") {

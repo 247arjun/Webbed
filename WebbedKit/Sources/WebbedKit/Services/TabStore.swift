@@ -88,7 +88,7 @@ public final class TabStore: ObservableObject {
         if local.updatedAt >= updated.updatedAt
             && local.url == updated.url
             && local.title == updated.title
-            && local.themeID == updated.themeID
+            && local.dominantColor == updated.dominantColor
             && local.isPinned == updated.isPinned
             && local.isPinnedTab == updated.isPinnedTab {
             return false
@@ -137,11 +137,10 @@ public final class TabStore: ObservableObject {
     @discardableResult
     public func createTab(
         url: URL? = nil,
-        themeID: String = ThemeRegistry.defaultThemeID,
         frame: PersistedRect = .default
     ) -> TabRecord {
         let maxOrder = tabs.values.map(\.manualSortOrder).max() ?? -1
-        var tab = TabRecord(url: url, themeID: themeID, frame: frame)
+        var tab = TabRecord(url: url, frame: frame)
         tab.manualSortOrder = maxOrder + 1
         tabs[tab.id] = tab
         persistImmediately(tab.id)
@@ -177,14 +176,6 @@ public final class TabStore: ObservableObject {
         scrollSaveSubject.send(tabID)
     }
 
-    public func updateTheme(tabID: UUID, themeID: String) {
-        guard var tab = tabs[tabID] else { return }
-        tab.themeID = themeID
-        tab.updatedAt = Date()
-        tabs[tabID] = tab
-        persistImmediately(tabID)
-    }
-
     public func updatePinned(tabID: UUID, isPinned: Bool) {
         guard var tab = tabs[tabID] else { return }
         tab.isPinned = isPinned
@@ -204,6 +195,23 @@ public final class TabStore: ObservableObject {
     public func updateLiveMode(tabID: UUID, interval: LiveModeInterval) {
         guard var tab = tabs[tabID] else { return }
         tab.liveModeInterval = interval
+        tab.updatedAt = Date()
+        tabs[tabID] = tab
+        persistImmediately(tabID)
+    }
+
+    public func updateDominantColor(tabID: UUID, rgba: Data?) {
+        guard var tab = tabs[tabID] else { return }
+        guard tab.dominantColor != rgba else { return }
+        tab.dominantColor = rgba
+        tab.updatedAt = Date()
+        tabs[tabID] = tab
+        persistImmediately(tabID)
+    }
+
+    public func updateAutoTintFromSite(tabID: UUID, enabled: Bool) {
+        guard var tab = tabs[tabID] else { return }
+        tab.autoTintFromSite = enabled
         tab.updatedAt = Date()
         tabs[tabID] = tab
         persistImmediately(tabID)
@@ -253,8 +261,7 @@ public final class TabStore: ObservableObject {
         guard let original = tabs[tabID] else { return nil }
         var dup = TabRecord(
             url: original.url,
-            title: original.title,
-            themeID: original.themeID
+            title: original.title
         )
         dup.updatedAt = Date()
         tabs[dup.id] = dup

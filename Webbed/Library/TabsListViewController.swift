@@ -303,7 +303,7 @@ private final class TabListRowView: NSView {
         } else {
             let symbol = tab.isPinnedTab ? "pin.fill" : "globe"
             icon.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
-            icon.contentTintColor = ThemeRegistry.theme(for: tab.themeID).controlTintColor
+            icon.contentTintColor = .secondaryLabelColor
         }
 
         let stack = NSStackView(views: [title, url])

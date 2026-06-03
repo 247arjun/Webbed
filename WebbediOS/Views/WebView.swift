@@ -74,51 +74,62 @@ struct WebView: UIViewRepresentable {
         }
 
         func installFaviconScript(on webView: WKWebView) {
-            let source = #"""
-            (function() {
-                function bestIcon() {
-                    var links = document.querySelectorAll('link[rel~="icon"]');
-                    if (links.length === 0) return null;
-                    var best = null, bestSize = 0;
-                    for (var i = 0; i < links.length; i++) {
-                        var l = links[i];
-                        var sizesAttr = (l.getAttribute('sizes') || '').toLowerCase();
-                        var sz = 0;
-                        if (sizesAttr === 'any') { sz = 9999; }
-                        else { var m = sizesAttr.match(/(\d+)x\d+/); if (m) sz = parseInt(m[1], 10); }
-                        if (best === null || sz > bestSize) { best = l; bestSize = sz; }
-                    }
-                    return best ? best.href : null;
-                }
-                function report() {
-                    var href = bestIcon();
-                    if (href) { window.webkit.messageHandlers.favicon.postMessage(href); }
-                }
-                if (document.readyState === 'loading') {
-                    document.addEventListener('DOMContentLoaded', report);
-                } else {
-                    report();
-                }
-            })();
-            """#
-            let script = WKUserScript(source: source,
-                                      injectionTime: .atDocumentEnd,
-                                      forMainFrameOnly: true)
-            webView.configuration.userContentController.addUserScript(script)
-            webView.configuration.userContentController.add(self, name: "favicon")
+            let ucc = webView.configuration.userContentController
+            ucc.addUserScript(WebViewFactory.faviconUserScript)
+            ucc.addUserScript(WebViewFactory.themeColorUserScript)
+            ucc.add(self, name: "favicon")
+            ucc.add(self, name: "themeColor")
         }
+
+        /// True once the page has reported a non-empty `theme-color`.
+        private var pageThemeColorReported = false
 
         nonisolated func userContentController(_ userContentController: WKUserContentController,
                                                didReceive message: WKScriptMessage) {
             Task { @MainActor in
-                guard message.name == "favicon",
-                      let href = message.body as? String,
-                      let url = URL(string: href) else { return }
-                let tabID = self.parent.tabID
-                if let ref = await FaviconCache.shared.fetch(iconURL: url) {
-                    AppModel.shared.tabStore.updateFaviconRef(tabID: tabID, ref: ref)
+                switch message.name {
+                case "favicon":
+                    guard let href = message.body as? String,
+                          let url = URL(string: href) else { return }
+                    let tabID = self.parent.tabID
+                    if let ref = await FaviconCache.shared.fetch(iconURL: url) {
+                        AppModel.shared.tabStore.updateFaviconRef(tabID: tabID, ref: ref)
+                        self.deriveDominantColorFromFaviconIfNeeded(ref: ref, tabID: tabID)
+                    }
+
+                case "themeColor":
+                    let raw = (message.body as? String) ?? ""
+                    self.applyPageThemeColor(raw)
+
+                default:
+                    break
                 }
             }
+        }
+
+        @MainActor
+        private func applyPageThemeColor(_ raw: String) {
+            let tabID = parent.tabID
+            guard AppSettings.shared.chromeStyle == .color,
+                  AppModel.shared.tabStore.tabs[tabID]?.autoTintFromSite ?? true else { return }
+            if let color = DominantColor.parseCSS(raw), !raw.isEmpty {
+                pageThemeColorReported = true
+                AppModel.shared.tabStore.updateDominantColor(tabID: tabID,
+                                                             rgba: DominantColor.data(from: color))
+            } else if raw.isEmpty {
+                pageThemeColorReported = false
+            }
+        }
+
+        @MainActor
+        private func deriveDominantColorFromFaviconIfNeeded(ref: String, tabID: UUID) {
+            guard AppSettings.shared.chromeStyle == .color,
+                  AppModel.shared.tabStore.tabs[tabID]?.autoTintFromSite ?? true,
+                  !pageThemeColorReported,
+                  let image = FaviconCache.shared.image(forRef: ref),
+                  let color = DominantColor.sample(from: image) else { return }
+            AppModel.shared.tabStore.updateDominantColor(tabID: tabID,
+                                                         rgba: DominantColor.data(from: color))
         }
 
         func attachKVO(to wv: WKWebView) {
@@ -226,6 +237,11 @@ struct WebView: UIViewRepresentable {
         }
 
         // WKNavigationDelegate — debounced snapshot capture (mirrors macOS).
+        func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
+            // Fresh navigation — forget the previous page's theme-color.
+            pageThemeColorReported = false
+        }
+
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
             snapshotWorkItem?.cancel()
             let tabID = parent.tabID
