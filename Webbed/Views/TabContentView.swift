@@ -15,6 +15,7 @@ protocol TabContentViewDelegate: AnyObject {
     func tabContentViewDidClickPin(_ view: TabContentView)
     func tabContentViewDidClickLiveMode(_ view: TabContentView, sourceButton: NSButton)
     func tabContentViewDidClickOpenExternal(_ view: TabContentView)
+    func tabContentViewDidClickTrash(_ view: TabContentView)
     func tabContentViewDidClickMore(_ view: TabContentView, sourceButton: NSButton)
 }
 
@@ -23,6 +24,7 @@ extension TabContentViewDelegate {
     func tabContentViewDidClickPin(_ view: TabContentView) {}
     func tabContentViewDidClickLiveMode(_ view: TabContentView, sourceButton: NSButton) {}
     func tabContentViewDidClickOpenExternal(_ view: TabContentView) {}
+    func tabContentViewDidClickTrash(_ view: TabContentView) {}
     func tabContentViewDidClickMore(_ view: TabContentView, sourceButton: NSButton) {}
 }
 
@@ -75,6 +77,7 @@ final class TabContentView: NSView {
     let pinButton:     NSButton
     let liveButton:    NSButton
     let openExternalButton: NSButton
+    let trashButton:   NSButton
     let moreButton:    NSButton
     let closeButton:   NSButton
     let progressLayer = CALayer()
@@ -100,6 +103,7 @@ final class TabContentView: NSView {
         pinButton     = Self.headerButton(symbol: "pin",            label: "Pin tab on top")
         liveButton    = Self.headerButton(symbol: "bolt.circle",     label: "Live Mode")
         openExternalButton = Self.headerButton(symbol: "safari", label: "Open in Browser")
+        trashButton   = Self.headerButton(symbol: "trash",          label: "Move to Trash")
         moreButton    = Self.headerButton(symbol: "ellipsis",       label: "More")
         closeButton   = Self.headerButton(symbol: "xmark",          label: "Close tab")
 
@@ -151,7 +155,7 @@ final class TabContentView: NSView {
             )
         }
 
-        for b in [backButton, forwardButton, reloadButton, pinButton, liveButton, openExternalButton, moreButton, closeButton] {
+        for b in [backButton, forwardButton, reloadButton, pinButton, liveButton, openExternalButton, trashButton, moreButton, closeButton] {
             b.contentTintColor = newTheme.controlTintColor
         }
 
@@ -237,7 +241,7 @@ final class TabContentView: NSView {
         addressField.translatesAutoresizingMaskIntoConstraints = false
         headerView.addSubview(addressField)
 
-        trailingButtonsStack = NSStackView(views: [pinButton, liveButton, openExternalButton, moreButton, closeButton])
+        trailingButtonsStack = NSStackView(views: [pinButton, liveButton, openExternalButton, trashButton, moreButton, closeButton])
         trailingButtonsStack.orientation = .horizontal
         trailingButtonsStack.spacing = 6
         trailingButtonsStack.alignment = .centerY
@@ -300,6 +304,7 @@ final class TabContentView: NSView {
         pinButton.target     = self; pinButton.action     = #selector(onPin)
         liveButton.target    = self; liveButton.action    = #selector(onLive)
         openExternalButton.target = self; openExternalButton.action = #selector(onOpenExternal)
+        trashButton.target   = self; trashButton.action   = #selector(onTrash)
         moreButton.target    = self; moreButton.action    = #selector(onMore)
         closeButton.target   = self; closeButton.action   = #selector(onClose)
         addressField.target  = self; addressField.action  = #selector(onAddressSubmit)
@@ -323,6 +328,7 @@ final class TabContentView: NSView {
         pinButton.isHidden          = tiny
         liveButton.isHidden         = tiny
         openExternalButton.isHidden = tiny
+        trashButton.isHidden        = tiny
 
         // Header band height.
         headerHeightConstraint.constant = isUltraTinyH
@@ -350,6 +356,7 @@ final class TabContentView: NSView {
     @objc private func onPin()            { delegate?.tabContentViewDidClickPin(self) }
     @objc private func onLive()           { delegate?.tabContentViewDidClickLiveMode(self, sourceButton: liveButton) }
     @objc private func onOpenExternal()   { delegate?.tabContentViewDidClickOpenExternal(self) }
+    @objc private func onTrash()          { delegate?.tabContentViewDidClickTrash(self) }
     @objc private func onMore()           { delegate?.tabContentViewDidClickMore(self, sourceButton: moreButton) }
     @objc private func onClose()          { delegate?.tabContentViewDidClickClose(self) }
 

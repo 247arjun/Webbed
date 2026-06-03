@@ -221,6 +221,10 @@ final class TabWindowController: NSWindowController,
         InstalledBrowsers.open(url, with: AppSettings.shared.externalBrowserBundleID)
     }
 
+    func tabContentViewDidClickTrash(_ view: TabContentView) {
+        menuTrash()
+    }
+
     func tabContentViewDidClickMore(_ view: TabContentView, sourceButton: NSButton) {
         let menu = NSMenu()
         let reload = menu.addItem(withTitle: "Reload", action: #selector(menuReload), keyEquivalent: "")

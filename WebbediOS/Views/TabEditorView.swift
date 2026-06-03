@@ -20,7 +20,6 @@ struct TabEditorView: View {
     @State private var isLoading: Bool = false
     @State private var progress: Double = 0
     @State private var pendingAction: WebAction? = nil
-    @State private var showShare = false
     @State private var liveRefreshTimer: Timer?
     @State private var liveInterval: LiveModeInterval = .off
     @State private var showSitePermissions = false
@@ -88,31 +87,12 @@ struct TabEditorView: View {
         }
     }
 
-    // MARK: - Address bar (in toolbar)
+    // MARK: - Top toolbar (menu only — URL bar lives at the bottom)
 
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
-        ToolbarItem(placement: .principal) {
-            HStack(spacing: 6) {
-                if isLoading {
-                    Button { pendingAction = .stop } label: { Image(systemName: "xmark") }
-                } else {
-                    Button { pendingAction = .reload } label: { Image(systemName: "arrow.clockwise") }
-                }
-                TextField("Search or enter URL", text: $address,
-                          onEditingChanged: { editing in isEditingAddress = editing },
-                          onCommit: submitAddress)
-                    .textFieldStyle(.roundedBorder)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled(true)
-                    .keyboardType(.URL)
-                    .submitLabel(.go)
-                    .frame(minWidth: 180)
-            }
-        }
         ToolbarItem(placement: .topBarTrailing) {
             Menu {
-                Button { showShare = true } label: { Label("Share…", systemImage: "square.and.arrow.up") }
                 Button {
                     if let url = url { UIApplication.shared.open(url) }
                 } label: {
@@ -126,10 +106,6 @@ struct TabEditorView: View {
                     } label: {
                         Label("Site Settings for \(host)…", systemImage: "slider.horizontal.3")
                     }
-                }
-                Button { togglePinnedTab() } label: {
-                    Label(currentTab()?.isPinnedTab == true ? "Unpin from Library" : "Pin in Library",
-                          systemImage: currentTab()?.isPinnedTab == true ? "pin.slash" : "pin")
                 }
                 Menu {
                     ForEach(LiveModeInterval.allCases) { option in
@@ -159,9 +135,6 @@ struct TabEditorView: View {
                     Button { tabStore.archive(tabID: tabID) } label: {
                         Label("Archive", systemImage: "archivebox")
                     }
-                    Button(role: .destructive) { tabStore.trash(tabID: tabID) } label: {
-                        Label("Move to Trash", systemImage: "trash")
-                    }
                 } else {
                     Button {
                         if bucket == .trash { tabStore.restoreFromTrash(tabID: tabID) }
@@ -173,50 +146,120 @@ struct TabEditorView: View {
                     if bucket == .trash {
                         Button(role: .destructive) {
                             tabStore.deleteForever(tabID: tabID)
+                            onClosed?()
                         } label: {
                             Label("Delete Forever", systemImage: "trash.fill")
                         }
                     }
                 }
             } label: {
-                Image(systemName: "ellipsis.circle")
+                Image(systemName: "ellipsis")
             }
         }
     }
 
-    // MARK: - iPhone Safari-style bottom bar
+    // MARK: - Safari-style glass chrome (bottom)
 
-    private var bottomBar: some View {
-        HStack {
-            Button { pendingAction = .back } label: {
-                Image(systemName: "chevron.left").imageScale(.large)
-            }.disabled(!canGoBack)
-            Spacer()
-            Button { pendingAction = .forward } label: {
-                Image(systemName: "chevron.right").imageScale(.large)
-            }.disabled(!canGoForward)
-            Spacer()
+    private var bottomChrome: some View {
+        VStack(spacing: 10) {
+            urlPill
+            actionRow
+        }
+        .padding(.horizontal, 12)
+        .padding(.top, 8)
+        .padding(.bottom, 4)
+    }
+
+    private var urlPill: some View {
+        HStack(spacing: 10) {
+            Button {
+                pendingAction = isLoading ? .stop : .reload
+            } label: {
+                Image(systemName: isLoading ? "xmark" : "arrow.clockwise")
+                    .font(.system(size: 15, weight: .medium))
+                    .frame(width: 22, height: 22)
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(Color(uiColor: chromeTheme.controlTintColor))
+
+            TextField("Search or enter website", text: $address,
+                      onEditingChanged: { editing in isEditingAddress = editing },
+                      onCommit: submitAddress)
+                .textFieldStyle(.plain)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled(true)
+                .keyboardType(.URL)
+                .submitLabel(.go)
+                .font(.system(size: 16))
+                .foregroundStyle(Color(uiColor: chromeTheme.titleTextColor))
+                .tint(Color(uiColor: chromeTheme.controlTintColor))
+                .frame(maxWidth: .infinity)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .glassEffect(in: .capsule)
+    }
+
+    private var actionRow: some View {
+        HStack(spacing: 0) {
+            actionButton(systemImage: "chevron.left", label: "Back",
+                         enabled: canGoBack) { pendingAction = .back }
+            Spacer(minLength: 0)
+            actionButton(systemImage: "chevron.right", label: "Forward",
+                         enabled: canGoForward) { pendingAction = .forward }
+            Spacer(minLength: 0)
             ShareLink(item: url ?? URL(string: "about:blank")!) {
-                Image(systemName: "square.and.arrow.up").imageScale(.large)
-            }.disabled(url == nil)
-            Spacer()
-            Button { togglePinnedTab() } label: {
-                Image(systemName: currentTab()?.isPinnedTab == true ? "pin.fill" : "pin")
-                    .imageScale(.large)
+                Image(systemName: "square.and.arrow.up")
+                    .font(.system(size: 18, weight: .regular))
+                    .frame(width: 44, height: 32)
+            }
+            .disabled(url == nil)
+            .foregroundStyle(Color(uiColor: chromeTheme.controlTintColor))
+            .opacity(url == nil ? 0.4 : 1.0)
+            Spacer(minLength: 0)
+            actionButton(systemImage: currentTab()?.isPinnedTab == true ? "pin.fill" : "pin",
+                         label: currentTab()?.isPinnedTab == true ? "Unpin" : "Pin",
+                         enabled: true) { togglePinnedTab() }
+            Spacer(minLength: 0)
+            actionButton(systemImage: "trash", label: "Move to Trash",
+                         enabled: bucket != .trash, role: .destructive) {
+                trashAndDismiss()
             }
         }
-        .padding(.horizontal, 24)
-        .padding(.vertical, 8)
-        .background(
-            chromeTheme.isSynthesized
-                ? Color(uiColor: chromeTheme.headerBackgroundColor)
-                : Color(uiColor: .systemBackground).opacity(0.95)
-        )
-        .foregroundStyle(
-            chromeTheme.isSynthesized
-                ? Color(uiColor: chromeTheme.titleTextColor)
-                : Color.primary
-        )
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
+        .glassEffect(in: .capsule)
+    }
+
+    @ViewBuilder
+    private func actionButton(systemImage: String,
+                              label: String,
+                              enabled: Bool,
+                              role: ButtonRole? = nil,
+                              action: @escaping () -> Void) -> some View {
+        Button(role: role, action: action) {
+            Image(systemName: systemImage)
+                .font(.system(size: 18, weight: .regular))
+                .frame(width: 44, height: 32)
+        }
+        .disabled(!enabled)
+        .accessibilityLabel(label)
+        .foregroundStyle(role == .destructive
+                         ? Color.red
+                         : Color(uiColor: chromeTheme.controlTintColor))
+        .opacity(enabled ? 1.0 : 0.4)
+    }
+
+    private func trashAndDismiss() {
+        switch bucket {
+        case .active:
+            tabStore.trash(tabID: tabID)
+        case .archived:
+            tabStore.trash(tabID: tabID)
+        case .trash:
+            return
+        }
+        onClosed?()
     }
 
     // MARK: - Helpers
