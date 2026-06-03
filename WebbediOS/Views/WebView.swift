@@ -1,6 +1,7 @@
 import SwiftUI
 import WebKit
 import WebbedKit
+import CryptoKit
 
 // MARK: - WebView
 
@@ -59,10 +60,13 @@ struct WebView: UIViewRepresentable {
         var parent: WebView
         weak var webView: WKWebView?
         private var observers: [NSKeyValueObservation] = []
+        private var snapshotWorkItem: DispatchWorkItem?
 
         init(parent: WebView) { self.parent = parent }
 
-        deinit { observers.forEach { $0.invalidate() } }
+        deinit {
+            observers.forEach { $0.invalidate() }
+        }
 
         func attachKVO(to wv: WKWebView) {
             observers.append(wv.observe(\.title, options: [.new]) { [weak self] _, change in
@@ -100,6 +104,66 @@ struct WebView: UIViewRepresentable {
                 webView.load(URLRequest(url: url))
             }
             return nil
+        }
+
+        // WKNavigationDelegate — debounced snapshot capture (mirrors macOS).
+        func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+            snapshotWorkItem?.cancel()
+            let tabID = parent.tabID
+            let work = DispatchWorkItem { [weak self, weak webView] in
+                guard let self, let webView else { return }
+                Task { @MainActor in self.captureSnapshot(webView: webView, tabID: tabID) }
+            }
+            snapshotWorkItem = work
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5, execute: work)
+        }
+
+        @MainActor
+        private func captureSnapshot(webView: WKWebView, tabID: UUID) {
+            guard AppSettings.shared.syncTabPreviews else { return }
+            let config = WKSnapshotConfiguration()
+            config.afterScreenUpdates = true
+            webView.takeSnapshot(with: config) { image, error in
+                guard let image else {
+                    if let error { Log.web.debug("Snapshot failed: \(error.localizedDescription)") }
+                    return
+                }
+                Task { @MainActor in
+                    guard let png = Self.pngData(from: image, maxBytes: 80 * 1024) else { return }
+                    let ref = SHA256.hash(data: png).map { String(format: "%02x", $0) }.joined()
+                    let store = AppModel.shared.tabStore
+                    do {
+                        try store.persistenceService.saveSnapshot(tabID: tabID, pngData: png)
+                        store.updateSnapshotRef(tabID: tabID, ref: ref)
+                    } catch {
+                        Log.persist.error("Snapshot save failed: \(error.localizedDescription)")
+                    }
+                }
+            }
+        }
+
+        /// Downscale + PNG-encode a UIImage, retrying smaller widths until under
+        /// `maxBytes`. Returns nil if we can't get under the cap.
+        private static func pngData(from image: UIImage, maxBytes: Int) -> Data? {
+            let targetWidths: [CGFloat] = [800, 600, 480, 360, 280]
+            for w in targetWidths {
+                guard let resized = resize(image, toWidth: w),
+                      let png = resized.pngData() else { continue }
+                if png.count <= maxBytes { return png }
+            }
+            return nil
+        }
+
+        private static func resize(_ image: UIImage, toWidth width: CGFloat) -> UIImage? {
+            let aspect = image.size.height / max(image.size.width, 1)
+            let size = CGSize(width: width, height: width * aspect)
+            let format = UIGraphicsImageRendererFormat()
+            format.scale = 1
+            format.opaque = true
+            let renderer = UIGraphicsImageRenderer(size: size, format: format)
+            return renderer.image { _ in
+                image.draw(in: CGRect(origin: .zero, size: size))
+            }
         }
     }
 }

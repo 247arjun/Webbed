@@ -22,6 +22,7 @@ struct TabEditorView: View {
     @State private var showShare = false
     @State private var liveRefreshTimer: Timer?
     @State private var liveInterval: LiveModeInterval = .off
+    @State private var themeID: String = ThemeRegistry.defaultThemeID
 
     var body: some View {
         VStack(spacing: 0) {
@@ -51,6 +52,7 @@ struct TabEditorView: View {
             self.title = tab?.displayTitle ?? ""
             self.address = tab?.displayURLString ?? ""
             self.liveInterval = tab?.liveModeInterval ?? .off
+            self.themeID = tab?.themeID ?? AppSettings.shared.defaultThemeID
             scheduleLiveRefresh(interval: liveInterval)
         }
         .onDisappear {
@@ -116,6 +118,22 @@ struct TabEditorView: View {
                 } label: {
                     Label("Live Mode…" + (liveInterval == .off ? "" : " (\(liveInterval.shortLabel))"),
                           systemImage: liveInterval == .off ? "bolt.circle" : "bolt.circle.fill")
+                }
+                Menu {
+                    ForEach(ThemeRegistry.allThemes) { theme in
+                        Button {
+                            setTheme(theme.id)
+                        } label: {
+                            if theme.id == themeID {
+                                Label(theme.displayName, systemImage: "checkmark")
+                            } else {
+                                Text(theme.displayName)
+                            }
+                        }
+                    }
+                } label: {
+                    Label("Theme — \(ThemeRegistry.theme(for: themeID).displayName)",
+                          systemImage: "paintpalette")
                 }
                 Divider()
                 if bucket == .active {
@@ -194,6 +212,11 @@ struct TabEditorView: View {
         liveInterval = interval
         tabStore.updateLiveMode(tabID: tabID, interval: interval)
         scheduleLiveRefresh(interval: interval)
+    }
+
+    private func setTheme(_ newThemeID: String) {
+        themeID = newThemeID
+        tabStore.updateTheme(tabID: tabID, themeID: newThemeID)
     }
 
     private func scheduleLiveRefresh(interval: LiveModeInterval) {
