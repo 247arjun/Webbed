@@ -442,7 +442,10 @@ final class TabWindowController: NSWindowController,
         // Debounce snapshot capture so rapid navigations don't churn.
         snapshotWorkItem?.cancel()
         let work = DispatchWorkItem { [weak self] in
-            Task { @MainActor in self?.captureSnapshot() }
+            Task { @MainActor in
+                self?.captureSnapshot()
+                self?.fetchDefaultFaviconIfNeeded()
+            }
         }
         snapshotWorkItem = work
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.5, execute: work)
@@ -518,6 +521,7 @@ final class TabWindowController: NSWindowController,
             case "favicon":
                 guard let href = message.body as? String,
                       let url = URL(string: href) else { return }
+                self.faviconReportedForCurrentPage = true
                 if let ref = await FaviconCache.shared.fetch(iconURL: url) {
                     self.tabStore?.updateFaviconRef(tabID: self.tabID, ref: ref)
                     self.deriveDominantColorFromFaviconIfNeeded(ref: ref)
@@ -538,10 +542,20 @@ final class TabWindowController: NSWindowController,
     /// True once the page has explicitly reported a `theme-color`. Prevents
     /// the favicon-derived color from overriding it.
     private var pageThemeColorReported = false
+    /// True once a favicon URL has been reported (via `<link rel=icon>` or
+    /// the `/favicon.ico` fallback) for the current navigation.
+    private var faviconReportedForCurrentPage = false
 
     /// Reset between navigations so a new origin gets a fresh sampling pass.
     private func resetThemingForNavigation() {
         pageThemeColorReported = false
+        faviconReportedForCurrentPage = false
+        // Clear the persisted dominant color so chrome falls back to System
+        // (or the new page's color, whichever arrives first). Otherwise the
+        // old origin's tint sticks until B reports something — and if B
+        // never does, it sticks forever.
+        tabStore?.updateDominantColor(tabID: tabID, rgba: nil)
+        applyCurrentTheme()
     }
 
     private func applyPageThemeColor(_ raw: String) {
@@ -564,9 +578,33 @@ final class TabWindowController: NSWindowController,
         guard AppSettings.shared.chromeStyle == .color,
               tabStore?.tabs[tabID]?.autoTintFromSite ?? true,
               !pageThemeColorReported else { return }
+        faviconReportedForCurrentPage = true
         guard let image = FaviconCache.shared.image(forRef: ref),
               let color = DominantColor.sample(from: image) else { return }
         updateDominantColor(color)
+    }
+
+    /// If neither the page nor the favicon script has reported anything by
+    /// the time the page finishes loading, fall back to `<origin>/favicon.ico`
+    /// — the legacy convention that sites like Hacker News still rely on.
+    private func fetchDefaultFaviconIfNeeded() {
+        guard !faviconReportedForCurrentPage,
+              !pageThemeColorReported,
+              let url = contentView.webView.url,
+              let scheme = url.scheme, scheme.hasPrefix("http"),
+              var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return }
+        components.path = "/favicon.ico"
+        components.query = nil
+        components.fragment = nil
+        guard let iconURL = components.url else { return }
+        faviconReportedForCurrentPage = true
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            if let ref = await FaviconCache.shared.fetch(iconURL: iconURL) {
+                self.tabStore?.updateFaviconRef(tabID: self.tabID, ref: ref)
+                self.deriveDominantColorFromFaviconIfNeeded(ref: ref)
+            }
+        }
     }
 
     private func updateDominantColor(_ color: PlatformColor) {

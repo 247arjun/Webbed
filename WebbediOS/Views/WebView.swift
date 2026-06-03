@@ -83,6 +83,9 @@ struct WebView: UIViewRepresentable {
 
         /// True once the page has reported a non-empty `theme-color`.
         private var pageThemeColorReported = false
+        /// True once a favicon URL has been reported (via `<link rel=icon>` or
+        /// the `/favicon.ico` fallback) for the current navigation.
+        private var faviconReportedForCurrentPage = false
 
         nonisolated func userContentController(_ userContentController: WKUserContentController,
                                                didReceive message: WKScriptMessage) {
@@ -92,6 +95,7 @@ struct WebView: UIViewRepresentable {
                     guard let href = message.body as? String,
                           let url = URL(string: href) else { return }
                     let tabID = self.parent.tabID
+                    self.faviconReportedForCurrentPage = true
                     if let ref = await FaviconCache.shared.fetch(iconURL: url) {
                         AppModel.shared.tabStore.updateFaviconRef(tabID: tabID, ref: ref)
                         self.deriveDominantColorFromFaviconIfNeeded(ref: ref, tabID: tabID)
@@ -130,6 +134,28 @@ struct WebView: UIViewRepresentable {
                   let color = DominantColor.sample(from: image) else { return }
             AppModel.shared.tabStore.updateDominantColor(tabID: tabID,
                                                          rgba: DominantColor.data(from: color))
+        }
+
+        /// Legacy `/favicon.ico` fallback for sites with no `<link rel=icon>`.
+        @MainActor
+        private func fetchDefaultFaviconIfNeeded(webView: WKWebView, tabID: UUID) {
+            guard !faviconReportedForCurrentPage,
+                  !pageThemeColorReported,
+                  let url = webView.url,
+                  let scheme = url.scheme, scheme.hasPrefix("http"),
+                  var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return }
+            components.path = "/favicon.ico"
+            components.query = nil
+            components.fragment = nil
+            guard let iconURL = components.url else { return }
+            faviconReportedForCurrentPage = true
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                if let ref = await FaviconCache.shared.fetch(iconURL: iconURL) {
+                    AppModel.shared.tabStore.updateFaviconRef(tabID: tabID, ref: ref)
+                    self.deriveDominantColorFromFaviconIfNeeded(ref: ref, tabID: tabID)
+                }
+            }
         }
 
         func attachKVO(to wv: WKWebView) {
@@ -238,8 +264,13 @@ struct WebView: UIViewRepresentable {
 
         // WKNavigationDelegate — debounced snapshot capture (mirrors macOS).
         func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
-            // Fresh navigation — forget the previous page's theme-color.
+            // Fresh navigation — forget the previous page's signals and
+            // clear the persisted dominant color so chrome falls back to
+            // System until the new page reports something.
             pageThemeColorReported = false
+            faviconReportedForCurrentPage = false
+            let tabID = parent.tabID
+            AppModel.shared.tabStore.updateDominantColor(tabID: tabID, rgba: nil)
         }
 
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
@@ -247,7 +278,10 @@ struct WebView: UIViewRepresentable {
             let tabID = parent.tabID
             let work = DispatchWorkItem { [weak self, weak webView] in
                 guard let self, let webView else { return }
-                Task { @MainActor in self.captureSnapshot(webView: webView, tabID: tabID) }
+                Task { @MainActor in
+                    self.captureSnapshot(webView: webView, tabID: tabID)
+                    self.fetchDefaultFaviconIfNeeded(webView: webView, tabID: tabID)
+                }
             }
             snapshotWorkItem = work
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.5, execute: work)
