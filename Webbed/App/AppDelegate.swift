@@ -92,6 +92,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             keyEquivalent: "w"
         )
 
+        fileMenu.addItem(.separator())
+        let library = fileMenu.addItem(
+            withTitle: "Library…",
+            action: #selector(AppCoordinator.showLibrary),
+            keyEquivalent: "L"
+        )
+        library.keyEquivalentModifierMask = [.command, .shift]
+        library.target = AppCoordinator.shared
+        let archived = fileMenu.addItem(
+            withTitle: "Archived Tabs…",
+            action: #selector(AppCoordinator.showArchive),
+            keyEquivalent: ""
+        )
+        archived.target = AppCoordinator.shared
+        let trash = fileMenu.addItem(
+            withTitle: "Trash…",
+            action: #selector(AppCoordinator.showTrash),
+            keyEquivalent: ""
+        )
+        trash.target = AppCoordinator.shared
+
         let fileMenuItem = NSMenuItem()
         fileMenuItem.submenu = fileMenu
         mainMenu.addItem(fileMenuItem)

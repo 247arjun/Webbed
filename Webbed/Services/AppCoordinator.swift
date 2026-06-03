@@ -15,6 +15,7 @@ final class AppCoordinator: ObservableObject {
     let tabStore: TabStore
     let windowManager: WindowManager
     private(set) var persistenceService: PersistenceService
+    private var libraryWindowController: LibraryWindowController?
 
     private init() {
         let dir = AppSettings.shared.effectiveSaveDirectory
@@ -39,17 +40,21 @@ final class AppCoordinator: ObservableObject {
             // First launch: open a single fresh tab.
             let tab = tabStore.createTab(url: AppSettings.shared.homepageURL)
             windowManager.openNewTabWindow(tabID: tab.id)
+            showLibrary()
             return
         }
 
         switch behavior {
-        case .libraryAndRestore, .restoreOnly:
+        case .libraryAndRestore:
             windowManager.restoreAllWindows()
+            showLibrary()
         case .libraryOnly:
-            break // Library window is wired up in Phase 3.
+            showLibrary()
+        case .restoreOnly:
+            windowManager.restoreAllWindows()
         }
 
-        if windowManager.openWindowCount == 0 {
+        if windowManager.openWindowCount == 0 && libraryWindowController?.window?.isVisible != true {
             // Fallback so the user always sees something.
             let tab = tabStore.createTab(url: AppSettings.shared.homepageURL)
             windowManager.openNewTabWindow(tabID: tab.id)
@@ -102,6 +107,36 @@ final class AppCoordinator: ObservableObject {
 
     @objc func actualSizeCurrentTab() {
         if let wv = currentWebView() { wv.pageZoom = 1.0 }
+    }
+
+    // MARK: - Library window
+
+    @objc func showLibrary() {
+        ensureLibraryController().showWindow()
+    }
+
+    @objc func showArchive() {
+        let ctrl = ensureLibraryController()
+        ctrl.setBucket(.archived)
+        ctrl.showWindow()
+    }
+
+    @objc func showTrash() {
+        let ctrl = ensureLibraryController()
+        ctrl.setBucket(.trash)
+        ctrl.showWindow()
+    }
+
+    private func ensureLibraryController() -> LibraryWindowController {
+        if let existing = libraryWindowController { return existing }
+        let ctrl = LibraryWindowController(
+            tabStore: tabStore,
+            onOpenTab: { [weak self] id in self?.windowManager.openWindow(for: id) },
+            onCreateTab: { [weak self] in self?.createNewTab() },
+            isWindowOpen: { [weak self] id in self?.windowManager.isWindowOpen(for: id) ?? false }
+        )
+        libraryWindowController = ctrl
+        return ctrl
     }
 
     // MARK: - Helpers
