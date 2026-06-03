@@ -106,6 +106,14 @@ struct SettingsView: View {
                 }
             }
 
+            Section("Storage") {
+                NavigationLink {
+                    StorageView()
+                } label: {
+                    Label("Cache & Disk Usage", systemImage: "internaldrive")
+                }
+            }
+
             Section("About") {
                 LabeledContent("Version",
                                value: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.1")

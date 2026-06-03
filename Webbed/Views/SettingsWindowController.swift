@@ -32,6 +32,8 @@ struct MacSettingsView: View {
                 .tabItem { Label("Appearance", systemImage: "paintbrush") }
             MacWebsitesSettings()
                 .tabItem { Label("Websites", systemImage: "globe") }
+            MacStorageSettings()
+                .tabItem { Label("Storage", systemImage: "internaldrive") }
             MacSyncSettings()
                 .tabItem { Label("Sync", systemImage: "icloud") }
         }
